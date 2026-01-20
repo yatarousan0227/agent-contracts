@@ -226,6 +226,13 @@ See `docs/cli.md` for details.
 - `examples/05_backend_runtime.py`: backend-oriented runtime with strict validation
 - `examples/03_simple_chatbot.py`: minimal rule-based routing
 - `examples/04_multi_step_workflow.py`: sequential workflow pattern
+- `examples/support_assistant`: modular support assistant package (config, nodes, runtime, CLI)
+
+Run the support assistant CLI:
+
+```bash
+PYTHONPATH=examples/support_assistant:src python -m support_assistant.cli "パスワードを忘れました"
+```
 
 ---
 

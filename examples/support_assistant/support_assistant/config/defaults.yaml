@@ -1,0 +1,12 @@
+supervisor:
+  max_iterations: 6
+response_types:
+  terminal_states:
+    - faq_answered
+    - ticket_created
+    - handoff
+    - fallback
+io:
+  strict: false
+  warn: true
+  drop_undeclared_writes: true
