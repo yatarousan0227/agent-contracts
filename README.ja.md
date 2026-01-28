@@ -15,6 +15,10 @@
 
 🧩 **公式Skills（エージェント指示ファイル）**: `docs/skills/official/index.md`
 
+**ドキュメント**
+- **Getting Started（入門ガイド）**: [docs/getting_started.ja.md](docs/getting_started.ja.md)
+- **API Reference**: [https://yatarousan0227.github.io/agent-contracts/](https://yatarousan0227.github.io/agent-contracts/)
+
 **LangGraphエージェントを構築するための、モジュール式・契約駆動型ノードアーキテクチャ。**
 
 ## ▶️ 対話デモを試す
