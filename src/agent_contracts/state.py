@@ -13,9 +13,16 @@ from typing import Any, TypedDict
 # =============================================================================
 
 class BaseRequestSlice(TypedDict, total=False):
-    """Base request information (read-only).
-    
-    Set from API request, nodes typically only read.
+    """Define the base request slice structure.
+
+    Args:
+        - session_id: Session identifier.
+        - action: Requested action name.
+        - params: Optional request parameters.
+        - message: Optional user message.
+        - image: Optional base64-encoded image.
+    Returns:
+        - BaseRequestSlice mapping.
     """
     session_id: str
     action: str
@@ -25,9 +32,14 @@ class BaseRequestSlice(TypedDict, total=False):
 
 
 class BaseResponseSlice(TypedDict, total=False):
-    """Base response information.
-    
-    Holds information to return as API response.
+    """Define the base response slice structure.
+
+    Args:
+        - response_type: Response type string.
+        - response_data: Response payload.
+        - response_message: Optional response message.
+    Returns:
+        - BaseResponseSlice mapping.
     """
     response_type: str | None
     response_data: dict | None
@@ -35,9 +47,17 @@ class BaseResponseSlice(TypedDict, total=False):
 
 
 class BaseInternalSlice(TypedDict, total=False):
-    """Internal flags (for Supervisor/Router).
-    
-    Nodes should not access these directly.
+    """Define the base internal slice structure.
+
+    Args:
+        - active_mode: Current active mode name.
+        - turn_count: Turn counter.
+        - is_first_turn: Whether this is the first turn.
+        - next_node: Next node to execute.
+        - decision: Supervisor decision name.
+        - error: Error message if present.
+    Returns:
+        - BaseInternalSlice mapping.
     """
     active_mode: str | None
     turn_count: int
@@ -52,15 +72,14 @@ class BaseInternalSlice(TypedDict, total=False):
 # =============================================================================
 
 class BaseAgentState(TypedDict, total=False):
-    """Base Agent State - Extend in your project.
-    
-    This provides the minimal state structure.
-    Add your domain slices by subclassing.
-    
-    Example:
-        class MyAgentState(BaseAgentState):
-            user: UserSlice
-            shopping: ShoppingSlice
+    """Define the base agent state structure.
+
+    Args:
+        - request: Request slice data.
+        - response: Response slice data.
+        - _internal: Internal control slice data.
+    Returns:
+        - BaseAgentState mapping.
     """
     request: BaseRequestSlice
     response: BaseResponseSlice
@@ -71,28 +90,29 @@ class BaseAgentState(TypedDict, total=False):
 # Helper Functions
 # =============================================================================
 
-def get_slice(state: dict, slice_name: str) -> dict:
-    """Get specified slice from state.
-    
+def get_slice(state: dict[str, Any], slice_name: str) -> dict[str, Any]:
+    """Return a slice dictionary from state.
+
     Args:
-        state: AgentState or dict
-        slice_name: Slice name (request, response, _internal, etc.)
-        
+        - state: Agent state dictionary.
+        - slice_name: Slice name (request, response, _internal, etc.).
     Returns:
-        Slice dict (empty dict if not found)
+        - Slice dict (empty if missing).
     """
     return state.get(slice_name, {})
 
 
-def merge_slice_updates(state: dict, updates: dict[str, Any] | None) -> dict[str, Any]:
-    """Merge slice-level updates for LangGraph.
-    
+def merge_slice_updates(
+    state: dict[str, Any],
+    updates: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge slice-level updates into full slices.
+
     Args:
-        state: Current state
-        updates: {slice_name: {field: value, ...}, ...}
-        
+        - state: Current state.
+        - updates: Mapping of slice updates.
     Returns:
-        Merged update dict (full slices)
+        - Merged updates with full slice dictionaries.
     """
     if not updates:
         return {}

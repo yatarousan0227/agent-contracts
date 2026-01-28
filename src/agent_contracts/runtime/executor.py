@@ -18,29 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRuntime:
-    """Unified execution engine for agent graphs.
-    
-    Provides a standardized execution lifecycle:
-    1. Create initial state from request
-    2. Restore session if resuming
-    3. Apply prepare_state hook
-    4. Execute the graph
-    5. Build result
-    6. Apply after_execution hook
-    
-    Example:
-        >>> from agent_contracts.runtime import AgentRuntime, InMemorySessionStore
-        >>> 
-        >>> runtime = AgentRuntime(
-        ...     graph=compiled_graph,
-        ...     session_store=InMemorySessionStore(),
-        ... )
-        >>> 
-        >>> result = await runtime.execute(RequestContext(
-        ...     session_id="abc123",
-        ...     action="answer",
-        ...     message="I like casual style",
-        ... ))
+    """Execute agent graphs with a standard lifecycle.
+
+    Args:
+        - graph: Compiled LangGraph instance.
+        - hooks: Optional RuntimeHooks implementation.
+        - session_store: Optional SessionStore implementation.
+        - slices_to_restore: Slice names to restore from sessions.
+    Returns:
+        - AgentRuntime instance.
     """
     
     def __init__(
@@ -51,12 +37,14 @@ class AgentRuntime:
         slices_to_restore: list[str] | None = None,
     ) -> None:
         """Initialize the runtime.
-        
+
         Args:
-            graph: Compiled LangGraph graph
-            hooks: Custom runtime hooks (optional)
-            session_store: Session persistence store (optional)
-            slices_to_restore: Slice names to restore from session (default: common ones)
+            - graph: Compiled LangGraph graph.
+            - hooks: Custom runtime hooks (optional).
+            - session_store: Session persistence store (optional).
+            - slices_to_restore: Slice names to restore from session.
+        Returns:
+            - None.
         """
         self.graph = graph
         self.hooks = hooks or DefaultHooks()
@@ -64,13 +52,12 @@ class AgentRuntime:
         self.slices_to_restore = slices_to_restore or ["_internal"]
     
     async def execute(self, request: RequestContext) -> ExecutionResult:
-        """Execute the agent graph.
-        
+        """Execute the agent graph for a request.
+
         Args:
-            request: Execution request context
-            
+            - request: Execution request context.
         Returns:
-            Execution result with final state and response
+            - ExecutionResult with final state and response data.
         """
         try:
             # 1. Create initial state
@@ -105,13 +92,12 @@ class AgentRuntime:
             return ExecutionResult.error_result(str(e))
     
     def _create_initial_state(self, request: RequestContext) -> dict[str, Any]:
-        """Create initial state from request context.
-        
+        """Create the initial state from a request context.
+
         Args:
-            request: Request context
-            
+            - request: Request context.
         Returns:
-            Initial state dictionary
+            - Initial state dictionary.
         """
         state: dict[str, Any] = {}
         
@@ -140,14 +126,13 @@ class AgentRuntime:
         state: dict[str, Any], 
         session_data: dict[str, Any],
     ) -> dict[str, Any]:
-        """Merge session data into state.
-        
+        """Merge session data into the current state.
+
         Args:
-            state: Current state
-            session_data: Session data to merge
-            
+            - state: Current state.
+            - session_data: Session data to merge.
         Returns:
-            Merged state
+            - Merged state dictionary.
         """
         result = dict(state)
         

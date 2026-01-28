@@ -18,23 +18,13 @@ from agent_contracts.utils.logging import get_logger
 
 
 class ModularNode(ABC):
-    """Base class for modular nodes.
-    
-    All nodes inherit this class and define a CONTRACT class variable.
-    
-    Example:
-        class OrderProcessorNode(ModularNode):
-            CONTRACT = NodeContract(
-                name="order_processor",
-                reads=["request", "orders", "inventory"],
-                writes=["orders", "inventory", "response"],
-                ...
-            )
-            
-            async def execute(self, inputs: NodeInputs) -> NodeOutputs:
-                orders = inputs.get_slice("orders")
-                ...
-                return NodeOutputs(orders={...}, response={...})
+    """Provide a base class for modular nodes.
+
+    Args:
+        - llm: Optional LangChain LLM instance.
+        - **services: Named services declared in the node contract.
+    Returns:
+        - ModularNode instance.
     """
     
     # Subclasses must define this
@@ -44,12 +34,14 @@ class ModularNode(ABC):
         self,
         llm: BaseChatModel | None = None,
         **services: Any,
-    ):
-        """Initialize.
-        
+    ) -> None:
+        """Initialize the node with services and optional LLM.
+
         Args:
-            llm: LangChain LLM (required if CONTRACT.requires_llm is True)
-            **services: Other services (declared in CONTRACT.services)
+            - llm: LangChain LLM (required if CONTRACT.requires_llm is True).
+            - **services: Other services (declared in CONTRACT.services).
+        Returns:
+            - None.
         """
         self.logger = get_logger(self.__class__.__name__)
         self.llm = llm
@@ -88,15 +80,13 @@ class ModularNode(ABC):
         inputs: NodeInputs, 
         config: Optional[RunnableConfig] = None,
     ) -> NodeOutputs:
-        """Execute node's main processing.
-        
+        """Execute the node's main processing logic.
+
         Args:
-            inputs: Input slices per CONTRACT.reads
-            config: Optional RunnableConfig for LLM tracing. Pass this to
-                    self.llm.ainvoke(..., config=config) for proper tracing.
-            
+            - inputs: Input slices per CONTRACT.reads.
+            - config: Optional RunnableConfig for LLM tracing.
         Returns:
-            Output slices per CONTRACT.writes
+            - Output slices per CONTRACT.writes.
         """
         pass
     
@@ -104,11 +94,14 @@ class ModularNode(ABC):
         self,
         state: dict,
         config: Optional[RunnableConfig] = None,
-    ) -> dict:
-        """LangGraph-compatible Callable.
-        
-        Extracts required slices from State, calls execute,
-        and converts result to State update format.
+    ) -> dict[str, Any]:
+        """Run as a LangGraph-compatible callable.
+
+        Args:
+            - state: Current agent state.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - State updates in LangGraph format.
         """
         # Deferred dependency validation (runs once on first call)
         self._validate_dependencies()
@@ -140,7 +133,7 @@ class ModularNode(ABC):
         # Convert outputs to State update format
         return self._convert_outputs(outputs)
     
-    def _extract_inputs(self, state: dict) -> NodeInputs:
+    def _extract_inputs(self, state: dict[str, Any]) -> NodeInputs:
         """Extract required slices from State.
         
         Only extracts slices declared in CONTRACT.reads
@@ -164,7 +157,7 @@ class ModularNode(ABC):
         )
         return inputs
     
-    def _convert_outputs(self, outputs: NodeOutputs) -> dict:
+    def _convert_outputs(self, outputs: NodeOutputs) -> dict[str, Any]:
         """Convert NodeOutputs to LangGraph State update format.
         
         Expands from slice format to flat format.
@@ -197,13 +190,28 @@ class ModularNode(ABC):
     # =========================================================================
     
     def get_request_param(self, inputs: NodeInputs, key: str, default: Any = None) -> Any:
-        """Get request parameter."""
+        """Fetch a parameter from the request slice.
+
+        Args:
+            - inputs: Node inputs containing the request slice.
+            - key: Parameter key.
+            - default: Default value when the key is missing.
+        Returns:
+            - Parameter value or default.
+        """
         request = inputs.get_slice("request")
         params = request.get("params") or {}
         return params.get(key, default)
     
     def build_error_response(self, message: str, code: str) -> NodeOutputs:
-        """Build error response."""
+        """Build a standardized error response output.
+
+        Args:
+            - message: Error message to include.
+            - code: Error code string.
+        Returns:
+            - NodeOutputs containing an error response slice.
+        """
         return NodeOutputs(
             response={
                 "response_type": "error",
@@ -213,33 +221,36 @@ class ModularNode(ABC):
 
 
 class InteractiveNode(ModularNode):
-    """Base class for conversational nodes.
-    
-    Provides standard flow for:
-    1. prepare_context: Prepare execution context
-    2. process_answer: Answer processing (if previous question exists)
-    3. check_completion: Completion check
-    4. generate_question: Next question generation (if not complete)
-    
-    Subclasses should implement:
-    - prepare_context(inputs) -> Any
-    - check_completion(context, inputs) -> bool
-    - process_answer(context, inputs) -> bool
-    - generate_question(context, inputs) -> NodeOutputs
+    """Provide a base class for conversational nodes.
+
+    Args:
+        - llm: Optional LangChain LLM instance.
+        - **services: Named services declared in the node contract.
+    Returns:
+        - InteractiveNode instance.
     """
     
     @abstractmethod
     def prepare_context(self, inputs: NodeInputs) -> Any:
-        """Prepare execution context.
-        
-        Extract needed data from NodeInputs and convert to
-        easy-to-use object (Pydantic model, etc.).
+        """Prepare an execution context from inputs.
+
+        Args:
+            - inputs: Node inputs containing state slices.
+        Returns:
+            - Context object for subsequent steps.
         """
         pass
     
     @abstractmethod
     def check_completion(self, context: Any, inputs: NodeInputs) -> bool:
-        """Check task completion."""
+        """Check whether the interactive flow is complete.
+
+        Args:
+            - context: Prepared execution context.
+            - inputs: Current node inputs.
+        Returns:
+            - True if the flow is complete, otherwise False.
+        """
         pass
     
     @abstractmethod
@@ -249,10 +260,14 @@ class InteractiveNode(ModularNode):
         inputs: NodeInputs, 
         config: RunnableConfig | None = None
     ) -> bool:
-        """Process user answer.
-        
+        """Process the latest user answer, if present.
+
+        Args:
+            - context: Prepared execution context.
+            - inputs: Current node inputs.
+            - config: Optional RunnableConfig for tracing.
         Returns:
-            bool: True if answer was processed and state updated
+            - True if the answer was processed and state updated.
         """
         pass
     
@@ -263,7 +278,15 @@ class InteractiveNode(ModularNode):
         inputs: NodeInputs, 
         config: RunnableConfig | None = None
     ) -> NodeOutputs:
-        """Generate and return next question."""
+        """Generate the next question for the user.
+
+        Args:
+            - context: Prepared execution context.
+            - inputs: Current node inputs.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - NodeOutputs containing the next question response.
+        """
         pass
 
     async def create_completion_output(
@@ -272,7 +295,15 @@ class InteractiveNode(ModularNode):
         inputs: NodeInputs,
         config: RunnableConfig | None = None
     ) -> NodeOutputs:
-        """Create output for completion (default: done flag)."""
+        """Create output when the flow is complete.
+
+        Args:
+            - context: Prepared execution context.
+            - inputs: Current node inputs.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - NodeOutputs signaling completion (default: decision=done).
+        """
         return NodeOutputs(_internal={"decision": "done"})
     
     async def execute(
@@ -280,7 +311,14 @@ class InteractiveNode(ModularNode):
         inputs: NodeInputs, 
         config: Optional[RunnableConfig] = None,
     ) -> NodeOutputs:
-        """Standard execution flow."""
+        """Run the standard interactive execution flow.
+
+        Args:
+            - inputs: Node inputs containing state slices.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - NodeOutputs from completion or next question generation.
+        """
         
         # 0. Prepare context
         context = self.prepare_context(inputs)

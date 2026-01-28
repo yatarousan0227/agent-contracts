@@ -22,12 +22,14 @@ logger = get_logger("agent_contracts.validator")
 
 @dataclass
 class ValidationResult:
-    """Result of contract validation.
-    
-    Attributes:
-        errors: Fatal issues that prevent execution (unknown slices, etc.)
-        warnings: Potential issues that deserve attention
-        info: Informational messages (shared writers, etc.)
+    """Capture contract validation results.
+
+    Args:
+        - errors: Fatal issues that prevent execution.
+        - warnings: Non-fatal issues that deserve attention.
+        - info: Informational messages.
+    Returns:
+        - ValidationResult instance.
     """
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -35,21 +37,45 @@ class ValidationResult:
     
     @property
     def has_errors(self) -> bool:
-        """Check if there are any errors."""
+        """Check whether errors were recorded.
+
+        Args:
+            - None.
+        Returns:
+            - True if errors exist, otherwise False.
+        """
         return len(self.errors) > 0
     
     @property
     def has_warnings(self) -> bool:
-        """Check if there are any warnings."""
+        """Check whether warnings were recorded.
+
+        Args:
+            - None.
+        Returns:
+            - True if warnings exist, otherwise False.
+        """
         return len(self.warnings) > 0
     
     @property
     def is_valid(self) -> bool:
-        """Check if validation passed (no errors)."""
+        """Check whether validation passed without errors.
+
+        Args:
+            - None.
+        Returns:
+            - True if no errors were recorded.
+        """
         return not self.has_errors
     
     def __str__(self) -> str:
-        """Human-readable format."""
+        """Render the validation result as text.
+
+        Args:
+            - None.
+        Returns:
+            - Human-readable validation summary.
+        """
         lines = []
         
         if self.errors:
@@ -78,26 +104,14 @@ class ValidationResult:
 # =============================================================================
 
 class ContractValidator:
-    """Validator for node contracts.
-    
-    Performs static analysis on registered contracts to detect:
-    - Unknown slice names in reads/writes
-    - Missing service dependencies
-    - Orphan/unreachable nodes
-    - Shared writers (informational)
-    
-    Example:
-        from agent_contracts import ContractValidator, get_node_registry
-        
-        registry = get_node_registry()
-        # ... register nodes ...
-        
-        validator = ContractValidator(registry)
-        result = validator.validate()
-        
-        if result.has_errors:
-            print(result)
-            sys.exit(1)
+    """Validate registered node contracts.
+
+    Args:
+        - registry: NodeRegistry instance to validate.
+        - known_services: Optional set of known service names.
+        - strict: Treat warnings as errors when True.
+    Returns:
+        - ContractValidator instance.
     """
     
     def __init__(
@@ -105,24 +119,27 @@ class ContractValidator:
         registry: "NodeRegistry",
         known_services: set[str] | None = None,
         strict: bool = False,
-    ):
-        """Initialize validator.
-        
+    ) -> None:
+        """Initialize the contract validator.
+
         Args:
-            registry: Node registry to validate
-            known_services: Set of known service names for validation.
-                           If None, service validation is skipped.
-            strict: Treat warnings as errors for CI enforcement.
+            - registry: Node registry to validate.
+            - known_services: Known service names for validation.
+            - strict: Treat warnings as errors.
+        Returns:
+            - None.
         """
         self._registry = registry
         self._known_services = known_services
         self._strict = strict
     
     def validate(self) -> ValidationResult:
-        """Run all validations.
-        
+        """Run all validation checks.
+
+        Args:
+            - None.
         Returns:
-            ValidationResult with errors, warnings, and info
+            - ValidationResult with errors, warnings, and info.
         """
         result = ValidationResult()
         
@@ -225,10 +242,12 @@ class ContractValidator:
         result.warnings = []
     
     def get_shared_writers(self) -> dict[str, list[str]]:
-        """Get all slices and their writers.
-        
+        """Get slices and their writer nodes.
+
+        Args:
+            - None.
         Returns:
-            {slice_name: [node_names that write to it]}
+            - Mapping of slice name to writer node names.
         """
         writers: dict[str, list[str]] = {}
         
@@ -245,10 +264,12 @@ class ContractValidator:
         return writers
     
     def get_slice_readers(self) -> dict[str, list[str]]:
-        """Get all slices and their readers.
-        
+        """Get slices and their reader nodes.
+
+        Args:
+            - None.
         Returns:
-            {slice_name: [node_names that read from it]}
+            - Mapping of slice name to reader node names.
         """
         readers: dict[str, list[str]] = {}
         
@@ -265,10 +286,12 @@ class ContractValidator:
         return readers
     
     def get_unused_slices(self) -> dict[str, str]:
-        """Find slices that are written but never read, or vice versa.
-        
+        """Find slices that are write-only or read-only.
+
+        Args:
+            - None.
         Returns:
-            {slice_name: "write_only" | "read_only"}
+            - Mapping of slice name to usage type.
         """
         writers = self.get_shared_writers()
         readers = self.get_slice_readers()

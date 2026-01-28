@@ -7,26 +7,18 @@ from typing import Any
 
 @dataclass
 class RequestContext:
-    """Context for an agent execution request.
-    
-    Contains all information needed to build initial state and execute the graph.
-    
-    Attributes:
-        session_id: Unique session identifier
-        action: The action to perform (e.g., "answer", "propose")
-        params: Optional parameters for the action
-        message: Optional user message
-        image: Optional base64-encoded image
-        resume_session: Whether to restore previous session state
-        metadata: Additional app-specific metadata
-    
-    Example:
-        >>> ctx = RequestContext(
-        ...     session_id="abc123",
-        ...     action="answer",
-        ...     message="I prefer casual style",
-        ...     resume_session=True,
-        ... )
+    """Describe an agent execution request.
+
+    Args:
+        - session_id: Unique session identifier.
+        - action: Action to perform (e.g., "answer", "propose").
+        - params: Optional parameters for the action.
+        - message: Optional user message.
+        - image: Optional base64-encoded image.
+        - resume_session: Whether to restore previous session state.
+        - metadata: Additional app-specific metadata.
+    Returns:
+        - RequestContext instance.
     """
     session_id: str
     action: str
@@ -37,14 +29,13 @@ class RequestContext:
     metadata: dict[str, Any] = field(default_factory=dict)
     
     def get_param(self, key: str, default: Any = None) -> Any:
-        """Get a parameter value safely.
-        
+        """Fetch a parameter from request params.
+
         Args:
-            key: Parameter key
-            default: Default value if not found
-            
+            - key: Parameter key.
+            - default: Default value if not found.
         Returns:
-            Parameter value or default
+            - Parameter value or default.
         """
         if self.params is None:
             return default
@@ -53,24 +44,17 @@ class RequestContext:
 
 @dataclass
 class ExecutionResult:
-    """Result of an agent execution.
-    
-    Contains the final state and response information.
-    
-    Attributes:
-        state: The final state after graph execution
-        response_type: Type of response (e.g., "question", "result")
-        response_data: Response payload data
-        response_message: Optional response message
-        success: Whether execution completed successfully
-        error: Error message if execution failed
-    
-    Example:
-        >>> result = ExecutionResult(
-        ...     state=final_state,
-        ...     response_type="question",
-        ...     response_data={"question": "What's your preference?"},
-        ... )
+    """Capture the result of an agent execution.
+
+    Args:
+        - state: Final state after graph execution.
+        - response_type: Response type string.
+        - response_data: Response payload data.
+        - response_message: Optional response message.
+        - success: Whether execution completed successfully.
+        - error: Error message if execution failed.
+    Returns:
+        - ExecutionResult instance.
     """
     state: dict[str, Any]
     response_type: str | None = None
@@ -81,15 +65,12 @@ class ExecutionResult:
     
     @classmethod
     def from_state(cls, state: dict[str, Any]) -> "ExecutionResult":
-        """Create ExecutionResult from final state.
-        
-        Extracts response information from the response slice.
-        
+        """Create an ExecutionResult from final state.
+
         Args:
-            state: Final state after graph execution
-            
+            - state: Final state after graph execution.
         Returns:
-            ExecutionResult instance
+            - ExecutionResult instance.
         """
         response = state.get("response", {}) or {}
         return cls(
@@ -102,13 +83,12 @@ class ExecutionResult:
     @classmethod
     def error_result(cls, error: str, state: dict[str, Any] | None = None) -> "ExecutionResult":
         """Create an error ExecutionResult.
-        
+
         Args:
-            error: Error message
-            state: Optional partial state
-            
+            - error: Error message.
+            - state: Optional partial state.
         Returns:
-            ExecutionResult with success=False
+            - ExecutionResult with success=False.
         """
         return cls(
             state=state or {},
@@ -117,12 +97,12 @@ class ExecutionResult:
         )
     
     def to_response_dict(self) -> dict[str, Any]:
-        """Convert to API response dictionary.
-        
-        Note: response_type takes precedence over any 'type' key in response_data.
-        
+        """Convert the result to an API response dictionary.
+
+        Args:
+            - None.
         Returns:
-            Dict suitable for API response
+            - Dict suitable for API response.
         """
         if not self.success:
             return {

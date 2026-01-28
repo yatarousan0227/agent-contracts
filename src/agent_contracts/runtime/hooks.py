@@ -1,88 +1,87 @@
 """Runtime hooks for customization."""
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from agent_contracts.runtime.context import RequestContext, ExecutionResult
 
 
 @runtime_checkable
 class RuntimeHooks(Protocol):
-    """Protocol for runtime customization hooks.
-    
-    Implement this protocol to customize the execution lifecycle.
-    Hooks are called at specific points during execution:
-    
-    1. prepare_state: Called before graph execution to customize initial state
-    2. after_execution: Called after graph execution for cleanup/persistence
-    
-    Example:
-        >>> class MyHooks:
-        ...     async def prepare_state(self, state, request):
-        ...         # Add custom data to state
-        ...         state = Internal.active_mode.set(state, "orders")
-        ...         return state
-        ...     
-        ...     async def after_execution(self, state, result):
-        ...         # Persist session if needed
-        ...         await self.session_store.save(...)
+    """Define customization hooks for runtime execution.
+
+    Args:
+        - None.
+    Returns:
+        - RuntimeHooks protocol implementation.
     """
     
     async def prepare_state(
         self, 
-        state: dict, 
+        state: dict[str, Any],
         request: RequestContext,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Prepare state before graph execution.
-        
-        Called after initial state creation and session restoration.
-        Use this to add app-specific state modifications.
-        
+
         Args:
-            state: Initial state (may include restored session data)
-            request: The execution request context
-            
+            - state: Initial state (may include restored session data).
+            - request: Execution request context.
         Returns:
-            Modified state (should be immutable - return new dict)
+            - Modified state dictionary.
         """
         ...
     
     async def after_execution(
         self, 
-        state: dict, 
+        state: dict[str, Any],
         result: ExecutionResult,
     ) -> None:
         """Handle post-execution tasks.
-        
-        Called after graph execution completes.
-        Use this for session persistence, cleanup, logging, etc.
-        
+
         Args:
-            state: Final state after graph execution
-            result: The execution result
+            - state: Final state after graph execution.
+            - result: Execution result.
+        Returns:
+            - None.
         """
         ...
 
 
 class DefaultHooks:
-    """Default implementation of RuntimeHooks (no-op).
-    
-    Use this when no customization is needed, or as a base class
-    for partial implementations.
+    """Provide a no-op RuntimeHooks implementation.
+
+    Args:
+        - None.
+    Returns:
+        - DefaultHooks instance.
     """
     
     async def prepare_state(
         self, 
-        state: dict, 
+        state: dict[str, Any],
         request: RequestContext,
-    ) -> dict:
-        """Default: return state unchanged."""
+    ) -> dict[str, Any]:
+        """Return state unchanged.
+
+        Args:
+            - state: Initial state.
+            - request: Execution request context.
+        Returns:
+            - Unmodified state dictionary.
+        """
         return state
     
     async def after_execution(
         self, 
-        state: dict, 
+        state: dict[str, Any],
         result: ExecutionResult,
     ) -> None:
-        """Default: do nothing."""
+        """Perform no post-execution work.
+
+        Args:
+            - state: Final state after graph execution.
+            - result: Execution result.
+        Returns:
+            - None.
+        """
         pass

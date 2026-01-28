@@ -16,12 +16,14 @@ logger = get_logger("agent_contracts.registry")
 
 @dataclass
 class TriggerMatch:
-    """Represents a matched trigger condition.
-    
-    Attributes:
-        priority: Priority of the matched condition
-        node_name: Name of the matched node
-        condition_index: Index of the matched condition in the node's trigger_conditions list
+    """Capture a matched trigger condition for a node.
+
+    Args:
+        - priority: Priority of the matched condition.
+        - node_name: Name of the matched node.
+        - condition_index: Index within the node's trigger_conditions list.
+    Returns:
+        - TriggerMatch instance.
     """
     priority: int
     node_name: str
@@ -29,33 +31,33 @@ class TriggerMatch:
 
 
 class NodeRegistry:
-    """Registry for node registration and management.
-    
-    Example:
-        registry = NodeRegistry()
-        registry.register(OrderProcessorNode)
-        registry.register(InventoryUpdaterNode)
-        
-        # Supervisor routing
-        candidates = registry.evaluate_triggers("orders", state)
+    """Register nodes and expose routing and analysis utilities.
+
+    Args:
+        - valid_slices: Optional set of valid slice names.
+    Returns:
+        - NodeRegistry instance.
     """
     
     def __init__(self, valid_slices: set[str] | None = None):
-        """Initialize registry.
-        
+        """Initialize the registry and valid slice set.
+
         Args:
-            valid_slices: Valid slice names for validation.
-                         Defaults to basic set if not provided.
+            - valid_slices: Valid slice names for validation.
+        Returns:
+            - None.
         """
         self._nodes: dict[str, type] = {}  # name -> node class
         self._contracts: dict[str, NodeContract] = {}  # name -> contract
         self._valid_slices = valid_slices or {"request", "response", "_internal"}
     
     def register(self, node_class: type) -> None:
-        """Register a node class.
-        
+        """Register a node class with its contract.
+
         Args:
-            node_class: ModularNode subclass with CONTRACT
+            - node_class: ModularNode subclass with a CONTRACT attribute.
+        Returns:
+            - None.
         """
         if not hasattr(node_class, "CONTRACT"):
             raise ValueError(f"Node class {node_class.__name__} must have CONTRACT")
@@ -84,33 +86,65 @@ class NodeRegistry:
                 logger.warning("Writing to 'request' slice is discouraged")
     
     def add_valid_slice(self, slice_name: str) -> None:
-        """Add a valid slice name."""
+        """Add a valid slice name.
+
+        Args:
+            - slice_name: Slice name to allow.
+        Returns:
+            - None.
+        """
         self._valid_slices.add(slice_name)
     
     def get_node_class(self, name: str) -> type | None:
-        """Get node class by name."""
+        """Return a node class by name.
+
+        Args:
+            - name: Node name.
+        Returns:
+            - Node class or None if not registered.
+        """
         return self._nodes.get(name)
     
     def get_contract(self, name: str) -> NodeContract | None:
-        """Get contract by name."""
+        """Return a node contract by name.
+
+        Args:
+            - name: Node name.
+        Returns:
+            - NodeContract instance or None if missing.
+        """
         return self._contracts.get(name)
     
     def get_all_nodes(self) -> list[str]:
-        """Get all node names."""
+        """List all registered node names.
+
+        Args:
+            - None.
+        Returns:
+            - List of node names.
+        """
         return list(self._nodes.keys())
     
     def get_supervisor_nodes(self, supervisor: str) -> list[str]:
-        """Get node names belonging to a supervisor."""
+        """List node names for a supervisor.
+
+        Args:
+            - supervisor: Supervisor name.
+        Returns:
+            - List of node names under the supervisor.
+        """
         return [
             name for name, contract in self._contracts.items()
             if contract.supervisor == supervisor
         ]
 
     def export_contracts(self) -> dict[str, dict[str, Any]]:
-        """Export registered contracts as serializable dicts.
-        
+        """Export contracts as serializable dictionaries.
+
+        Args:
+            - None.
         Returns:
-            Mapping of node name -> contract dict
+            - Mapping of node name to contract dict.
         """
         exported: dict[str, dict[str, Any]] = {}
         for name, contract in self._contracts.items():
@@ -124,19 +158,15 @@ class NodeRegistry:
     def evaluate_triggers(
         self,
         supervisor: str,
-        state: dict,
+        state: dict[str, Any],
     ) -> list[TriggerMatch]:
-        """Evaluate all node trigger conditions and return matches.
-        
-        For each node, evaluates all trigger conditions and selects the one
-        with the highest priority among matching conditions.
-        
+        """Evaluate trigger conditions for a supervisor.
+
         Args:
-            supervisor: Supervisor name to evaluate
-            state: Current State
-            
+            - supervisor: Supervisor name to evaluate.
+            - state: Current state dictionary.
         Returns:
-            List of TriggerMatch objects sorted by priority (descending)
+            - TriggerMatch list sorted by descending priority.
         """
         matches: list[TriggerMatch] = []
         
@@ -163,7 +193,7 @@ class NodeRegistry:
     def _evaluate_condition(
         self,
         condition: TriggerCondition,
-        state: dict,
+        state: dict[str, Any],
     ) -> bool:
         """Evaluate a single trigger condition."""
         def matches_expected(actual: Any, expected: Any) -> bool:
@@ -226,18 +256,14 @@ class NodeRegistry:
         state: dict,
         context: str | None = None,
     ) -> str:
-        """Generate LLM prompt for Supervisor.
-        
-        Aggregates LLM hints from each node to build prompt.
-        Optionally includes context information for better decision-making.
-        
+        """Generate an LLM prompt for supervisor routing.
+
         Args:
-            supervisor: Supervisor name
-            state: Current state (for future use)
-            context: Optional context string to include in prompt
-            
+            - supervisor: Supervisor name.
+            - state: Current state (reserved for future use).
+            - context: Optional context string to include.
         Returns:
-            Complete LLM prompt with instructions and context
+            - Full LLM prompt string.
         """
         lines = ["Choose the next action based on the current state:\n"]
         
@@ -270,9 +296,11 @@ class NodeRegistry:
     
     def analyze_data_flow(self) -> dict[str, list[str]]:
         """Analyze data flow dependencies between nodes.
-        
+
+        Args:
+            - None.
         Returns:
-            {node_name: [dependent_nodes], ...}
+            - Mapping of node name to dependent node names.
         """
         dependencies: dict[str, list[str]] = {}
         
@@ -297,7 +325,13 @@ _registry: NodeRegistry | None = None
 
 
 def get_node_registry() -> NodeRegistry:
-    """Get global registry."""
+    """Return the global NodeRegistry singleton.
+
+    Args:
+        - None.
+    Returns:
+        - NodeRegistry singleton instance.
+    """
     global _registry
     if _registry is None:
         _registry = NodeRegistry()
@@ -305,6 +339,12 @@ def get_node_registry() -> NodeRegistry:
 
 
 def reset_registry() -> None:
-    """Reset registry (for testing)."""
+    """Reset the global NodeRegistry singleton.
+
+    Args:
+        - None.
+    Returns:
+        - None.
+    """
     global _registry
     _registry = None

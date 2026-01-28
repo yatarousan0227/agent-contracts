@@ -13,67 +13,59 @@ Example:
 """
 from __future__ import annotations
 
-from typing import TypeVar, Generic, overload
+from typing import Any, Callable, Generic, TypeVar
 
 T = TypeVar("T")
 
 
 class StateAccessor(Generic[T]):
-    """Type-safe accessor for state fields.
-    
-    Provides get/set methods that work immutably on state dictionaries.
-    The accessor knows its slice name, field name, and default value.
-    
-    Attributes:
-        slice_name: Name of the state slice (e.g., "_internal", "request")
-        field_name: Name of the field within the slice
-        default: Default value if field is not present
-    
-    Example:
-        >>> turn_count = StateAccessor("_internal", "turn_count", 0)
-        >>> state = {}
-        >>> turn_count.get(state)  # Returns 0 (default)
-        >>> new_state = turn_count.set(state, 5)
-        >>> turn_count.get(new_state)  # Returns 5
+    """Provide immutable access to a state field.
+
+    Args:
+        - slice_name: State slice name (e.g., "_internal", "request").
+        - field_name: Field name within the slice.
+        - default: Default value if the field is missing.
+    Returns:
+        - StateAccessor instance.
     """
     
     __slots__ = ("slice_name", "field_name", "default")
     
     def __init__(self, slice_name: str, field_name: str, default: T) -> None:
         """Initialize the accessor.
-        
+
         Args:
-            slice_name: Name of the state slice
-            field_name: Name of the field within the slice
-            default: Default value to return if field is absent
+            - slice_name: Name of the state slice.
+            - field_name: Name of the field within the slice.
+            - default: Default value to return if field is absent.
+        Returns:
+            - None.
         """
         self.slice_name = slice_name
         self.field_name = field_name
         self.default = default
     
-    def get(self, state: dict) -> T:
+    def get(self, state: dict[str, Any]) -> T:
         """Get the field value from state.
-        
+
         Args:
-            state: The state dictionary
-            
+            - state: State dictionary.
         Returns:
-            The field value, or default if not present
+            - Field value or default if missing.
         """
         slice_data = state.get(self.slice_name)
         if not isinstance(slice_data, dict):
             return self.default
         return slice_data.get(self.field_name, self.default)
     
-    def set(self, state: dict, value: T) -> dict:
-        """Set the field value and return a new state (immutable).
-        
+    def set(self, state: dict[str, Any], value: T) -> dict[str, Any]:
+        """Set the field value and return a new state.
+
         Args:
-            state: The current state dictionary
-            value: The new value to set
-            
+            - state: Current state dictionary.
+            - value: Value to set.
         Returns:
-            A new state dictionary with the updated value
+            - New state dictionary with the updated value.
         """
         current_slice = state.get(self.slice_name, {})
         if not isinstance(current_slice, dict):
@@ -81,15 +73,14 @@ class StateAccessor(Generic[T]):
         new_slice = {**current_slice, self.field_name: value}
         return {**state, self.slice_name: new_slice}
     
-    def update(self, state: dict, func) -> dict:
-        """Update the field using a function (immutable).
-        
+    def update(self, state: dict[str, Any], func: Callable[[T], T]) -> dict[str, Any]:
+        """Update the field using a transformation function.
+
         Args:
-            state: The current state dictionary
-            func: A function that takes the current value and returns new value
-            
+            - state: Current state dictionary.
+            - func: Function that maps current value to new value.
         Returns:
-            A new state dictionary with the updated value
+            - New state dictionary with the updated value.
         """
         current_value = self.get(state)
         new_value = func(current_value)
@@ -104,10 +95,12 @@ class StateAccessor(Generic[T]):
 # =============================================================================
 
 class Internal:
-    """Accessors for _internal slice fields.
-    
-    These fields are used by the supervisor/router and should not be
-    accessed directly by nodes.
+    """Expose accessors for _internal slice fields.
+
+    Args:
+        - None.
+    Returns:
+        - Internal accessor namespace.
     """
     
     # Core control fields
@@ -124,10 +117,12 @@ class Internal:
 # =============================================================================
 
 class Request:
-    """Accessors for request slice fields.
-    
-    Request slice contains information from the API request.
-    Typically read-only for nodes.
+    """Expose accessors for request slice fields.
+
+    Args:
+        - None.
+    Returns:
+        - Request accessor namespace.
     """
     
     session_id: StateAccessor[str] = StateAccessor("request", "session_id", "")
@@ -142,9 +137,12 @@ class Request:
 # =============================================================================
 
 class Response:
-    """Accessors for response slice fields.
-    
-    Response slice contains information to return as API response.
+    """Expose accessors for response slice fields.
+
+    Args:
+        - None.
+    Returns:
+        - Response accessor namespace.
     """
     
     response_type: StateAccessor[str | None] = StateAccessor("response", "response_type", None)
@@ -156,14 +154,13 @@ class Response:
 # Convenience Functions
 # =============================================================================
 
-def reset_response(state: dict) -> dict:
-    """Reset the response slice to empty values (immutable).
-    
+def reset_response(state: dict[str, Any]) -> dict[str, Any]:
+    """Reset the response slice to empty values.
+
     Args:
-        state: Current state
-        
+        - state: Current state.
     Returns:
-        New state with response slice cleared
+        - New state with response slice cleared.
     """
     state = Response.response_type.set(state, None)
     state = Response.response_data.set(state, None)
@@ -171,40 +168,37 @@ def reset_response(state: dict) -> dict:
     return state
 
 
-def increment_turn(state: dict) -> dict:
-    """Increment turn count and set is_first_turn to False (immutable).
-    
+def increment_turn(state: dict[str, Any]) -> dict[str, Any]:
+    """Increment turn count and mark as not the first turn.
+
     Args:
-        state: Current state
-        
+        - state: Current state.
     Returns:
-        New state with incremented turn count
+        - New state with updated turn counters.
     """
     state = Internal.turn_count.update(state, lambda x: x + 1)
     state = Internal.is_first_turn.set(state, False)
     return state
 
 
-def set_error(state: dict, error: str) -> dict:
-    """Set error in state (immutable).
-    
+def set_error(state: dict[str, Any], error: str) -> dict[str, Any]:
+    """Set the error message in state.
+
     Args:
-        state: Current state
-        error: Error message
-        
+        - state: Current state.
+        - error: Error message.
     Returns:
-        New state with error set
+        - New state with error set.
     """
     return Internal.error.set(state, error)
 
 
-def clear_error(state: dict) -> dict:
-    """Clear error in state (immutable).
-    
+def clear_error(state: dict[str, Any]) -> dict[str, Any]:
+    """Clear the error message in state.
+
     Args:
-        state: Current state
-        
+        - state: Current state.
     Returns:
-        New state with error cleared
+        - New state with error cleared.
     """
     return Internal.error.set(state, None)

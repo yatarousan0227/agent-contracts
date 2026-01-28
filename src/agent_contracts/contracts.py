@@ -19,10 +19,15 @@ from agent_contracts.errors import ContractViolationError
 # =============================================================================
 
 class TriggerCondition(BaseModel):
-    """Condition for when a node should be triggered.
-    
-    The Supervisor collects matching conditions as hints for LLM decision.
-    If no LLM is available, rule-based matching is used as fallback.
+    """Describe when a node should be triggered.
+
+    Args:
+        - priority: Evaluation priority (higher values are evaluated first).
+        - when: Match conditions for rule-based routing.
+        - when_not: Conditions that must not match for routing.
+        - llm_hint: Optional hint string for LLM routing decisions.
+    Returns:
+        - TriggerCondition instance.
     """
     model_config = ConfigDict(frozen=True)
     
@@ -51,20 +56,21 @@ class TriggerCondition(BaseModel):
 # =============================================================================
 
 class NodeContract(BaseModel):
-    """Node I/O contract.
-    
-    Each node defines this as a CONTRACT class variable.
-    Registry uses this for I/O validation, routing, and dependency analysis.
-    
-    Example:
-        class OrderProcessorNode(ModularNode):
-            CONTRACT = NodeContract(
-                name="order_processor",
-                description="Processes incoming orders",
-                reads=["request", "orders", "inventory"],
-                writes=["orders", "inventory", "response"],
-                ...
-            )
+    """Declare the I/O contract for a node.
+
+    Args:
+        - name: Node name (registry key).
+        - description: Human-readable role description.
+        - reads: Slice names the node reads.
+        - writes: Slice names the node writes.
+        - requires_llm: Whether an LLM client is required.
+        - services: Service names required by the node.
+        - supervisor: Supervisor name the node belongs to.
+        - trigger_conditions: Conditions that trigger this node.
+        - is_terminal: Whether the node ends the flow after execution.
+        - icon: Optional emoji icon used in visualization.
+    Returns:
+        - NodeContract instance.
     """
     model_config = ConfigDict(frozen=True)
     
@@ -114,13 +120,25 @@ class NodeContract(BaseModel):
     )
     
     def get_highest_priority_condition(self) -> TriggerCondition | None:
-        """Get the highest priority trigger condition."""
+        """Return the highest-priority trigger condition.
+
+        Args:
+            - None.
+        Returns:
+            - The highest-priority TriggerCondition, or None if absent.
+        """
         if not self.trigger_conditions:
             return None
         return max(self.trigger_conditions, key=lambda c: c.priority)
     
     def get_llm_hints(self) -> list[str]:
-        """Get all LLM hints."""
+        """Collect LLM hint strings from trigger conditions.
+
+        Args:
+            - None.
+        Returns:
+            - List of non-empty LLM hints.
+        """
         return [c.llm_hint for c in self.trigger_conditions if c.llm_hint]
 
 
@@ -129,9 +147,12 @@ class NodeContract(BaseModel):
 # =============================================================================
 
 class NodeInputs(BaseModel):
-    """Node inputs.
-    
-    Holds slices extracted based on Contract.reads.
+    """Represent input slices for node execution.
+
+    Args:
+        - **data: Slice dictionaries keyed by slice name.
+    Returns:
+        - NodeInputs instance.
     """
     model_config = ConfigDict(extra="allow")  # Allow dynamic slice addition
 
@@ -158,8 +179,14 @@ class NodeInputs(BaseModel):
         if logger is not None:
             self._logger = logger
 
-    def get_slice(self, name: str) -> dict:
-        """Get specified slice."""
+    def get_slice(self, name: str) -> dict[str, Any]:
+        """Fetch a named slice from inputs.
+
+        Args:
+            - name: Slice name to read.
+        Returns:
+            - Slice dictionary (empty if missing or blocked).
+        """
         if self._allowed_slices and name not in self._allowed_slices:
             node = self._node_name or "unknown"
             msg = f"Undeclared slice read '{name}' in node '{node}'"
@@ -173,12 +200,21 @@ class NodeInputs(BaseModel):
 
 
 class NodeOutputs(BaseModel):
-    """Node outputs.
-    
-    Holds slices to update based on Contract.writes.
+    """Represent output slices for node execution.
+
+    Args:
+        - **data: Slice dictionaries keyed by slice name.
+    Returns:
+        - NodeOutputs instance.
     """
     model_config = ConfigDict(extra="allow")  # Allow dynamic slice addition
     
-    def to_state_updates(self) -> dict[str, dict]:
-        """Convert to State update dict."""
+    def to_state_updates(self) -> dict[str, Any]:
+        """Convert outputs to a state update mapping.
+
+        Args:
+            - None.
+        Returns:
+            - Mapping of slice name to slice updates.
+        """
         return {k: v for k, v in self.model_dump().items() if v is not None}
