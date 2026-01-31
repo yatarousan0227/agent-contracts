@@ -15,6 +15,10 @@ English | [日本語](README.ja.md)
 
 🧩 **Official Skills (agent instructions)**: `docs/skills/official/index.md`
 
+**Documentation**
+- **Getting Started**: [docs/getting_started.md](docs/getting_started.md)
+- **API Reference**: [https://yatarousan0227.github.io/agent-contracts/](https://yatarousan0227.github.io/agent-contracts/)
+
 **A modular, contract-driven node architecture for building scalable LangGraph agents.**
 
 ## ▶️ Try the Interactive Demo
