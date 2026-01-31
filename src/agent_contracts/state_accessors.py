@@ -13,7 +13,10 @@ Example:
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_contracts.runtime.hierarchy import Budgets, CallStackFrame, DecisionTraceItem
 
 T = TypeVar("T")
 
@@ -110,6 +113,11 @@ class Internal:
     next_node: StateAccessor[str | None] = StateAccessor("_internal", "next_node", None)
     decision: StateAccessor[str | None] = StateAccessor("_internal", "decision", None)
     error: StateAccessor[str | None] = StateAccessor("_internal", "error", None)
+    call_stack: StateAccessor[list[CallStackFrame]] = StateAccessor("_internal", "call_stack", [])
+    budgets: StateAccessor[Budgets | None] = StateAccessor("_internal", "budgets", None)
+    decision_trace: StateAccessor[list[DecisionTraceItem]] = StateAccessor("_internal", "decision_trace", [])
+    visited_subgraphs: StateAccessor[dict] = StateAccessor("_internal", "visited_subgraphs", {})
+    step_count: StateAccessor[int] = StateAccessor("_internal", "step_count", 0)
 
 
 # =============================================================================

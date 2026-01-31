@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_contracts.contracts import NodeContract, TriggerCondition
+from agent_contracts.subgraph import SubgraphContract, SubgraphDefinition
 from agent_contracts.utils.logging import get_logger
 
 logger = get_logger("agent_contracts.registry")
@@ -49,6 +50,7 @@ class NodeRegistry:
         """
         self._nodes: dict[str, type] = {}  # name -> node class
         self._contracts: dict[str, NodeContract] = {}  # name -> contract
+        self._subgraphs: dict[str, tuple[SubgraphContract, SubgraphDefinition]] = {}
         self._valid_slices = valid_slices or {"request", "response", "_internal"}
     
     def register(self, node_class: type) -> None:
@@ -63,10 +65,16 @@ class NodeRegistry:
             raise ValueError(f"Node class {node_class.__name__} must have CONTRACT")
         
         contract = node_class.CONTRACT
+        if contract.name.startswith("call_subgraph::"):
+            raise ValueError(
+                f"Node name uses reserved prefix 'call_subgraph::': {contract.name}"
+            )
         self._validate_contract(contract)
         
         if contract.name in self._nodes:
             raise ValueError(f"Node {contract.name} is already registered")
+        if contract.name in self._subgraphs:
+            raise ValueError(f"Node {contract.name} conflicts with registered subgraph")
             
         self._nodes[contract.name] = node_class
         self._contracts[contract.name] = contract
@@ -79,6 +87,18 @@ class NodeRegistry:
             if slice_name not in self._valid_slices:
                 logger.warning(f"Unknown slice in reads: {slice_name}")
         
+        for slice_name in contract.writes:
+            if slice_name not in self._valid_slices:
+                logger.warning(f"Unknown slice in writes: {slice_name}")
+            if slice_name == "request":
+                logger.warning("Writing to 'request' slice is discouraged")
+
+    def _validate_subgraph_contract(self, contract: SubgraphContract) -> None:
+        """Validate subgraph contract consistency."""
+        for slice_name in contract.reads:
+            if slice_name not in self._valid_slices:
+                logger.warning(f"Unknown slice in reads: {slice_name}")
+
         for slice_name in contract.writes:
             if slice_name not in self._valid_slices:
                 logger.warning(f"Unknown slice in writes: {slice_name}")
@@ -149,6 +169,47 @@ class NodeRegistry:
         exported: dict[str, dict[str, Any]] = {}
         for name, contract in self._contracts.items():
             exported[name] = contract.model_dump()
+        return exported
+
+    def register_subgraph(
+        self,
+        contract: SubgraphContract,
+        definition: SubgraphDefinition,
+    ) -> None:
+        """Register a subgraph contract and definition."""
+        if contract.subgraph_id != definition.subgraph_id:
+            raise ValueError("Subgraph contract/definition subgraph_id mismatch")
+
+        subgraph_id = contract.subgraph_id
+        self._validate_subgraph_contract(contract)
+
+        if subgraph_id in self._nodes:
+            raise ValueError(f"Subgraph {subgraph_id} conflicts with registered node")
+        if subgraph_id in self._subgraphs:
+            raise ValueError(f"Subgraph {subgraph_id} is already registered")
+
+        self._subgraphs[subgraph_id] = (contract, definition)
+        logger.info(f"Registered subgraph: {subgraph_id}")
+
+    def get_subgraph(
+        self,
+        subgraph_id: str,
+    ) -> tuple[SubgraphContract, SubgraphDefinition] | None:
+        """Return a subgraph contract/definition pair."""
+        return self._subgraphs.get(subgraph_id)
+
+    def list_subgraphs(self) -> list[str]:
+        """List all registered subgraph ids."""
+        return list(self._subgraphs.keys())
+
+    def export_subgraphs(self) -> dict[str, dict[str, Any]]:
+        """Export subgraphs as serializable dictionaries."""
+        exported: dict[str, dict[str, Any]] = {}
+        for subgraph_id, (contract, definition) in self._subgraphs.items():
+            exported[subgraph_id] = {
+                "contract": contract.model_dump(),
+                "definition": definition.model_dump(),
+            }
         return exported
     
     # =========================================================================

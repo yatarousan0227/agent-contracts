@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Runtime**: `StreamingRuntime.stream_with_graph()` now supports `include_subgraphs` parameter (default: `True`)
+  - When enabled, streams events from subgraph nodes individually
+  - Node names include subgraph path (e.g., `node::subgraph::nested`)
+
+## [0.6.0] - 2026-01-21
+
+### Added
+- **Hierarchical Supervisor**: Opt-in subgraph calls via CallSubgraph nodes
+- **Safety Budgets**: Max depth/steps/re-entry enforcement with decision traces
+- **Allowlists**: Safe termination on allowlist violations for supervisors/subgraphs
+- **Examples/Docs**: Minimal hierarchical supervisor example and new guides (EN/JA)
+
 ## [0.5.3] - 2026-01-20
 
 ### Added

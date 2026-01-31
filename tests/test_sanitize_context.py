@@ -21,6 +21,7 @@ Test suite for sanitize_context.py
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import pytest
 
@@ -134,6 +135,72 @@ class TestHelperFunctions:
         result = _is_likely_hex(short_hex, min_length=128)
         assert result is False
 
+    def test_safe_b64decode_prefix_oversized(self) -> None:
+        oversized = "A" * (MAX_INPUT_LENGTH + 1)
+        assert _safe_b64decode_prefix(oversized, urlsafe=False, max_bytes=64) is None
+
+    def test_classify_magic_webp_and_mp4(self) -> None:
+        webp_prefix = b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 8
+        mp4_prefix = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 16
+        assert _classify_magic(webp_prefix) == "image/webp"
+        assert _classify_magic(mp4_prefix) == "video/mp4"
+
+    def test_looks_like_base64_oversized(self) -> None:
+        oversized = "A" * (MAX_INPUT_LENGTH + 1)
+        is_b64, urlsafe = _looks_like_base64(oversized, min_length=128)
+        assert is_b64 is False
+        assert urlsafe is None
+
+    def test_looks_like_base64_invalid_decode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        data = "A" * 128
+
+        def _raise(*_args, **_kwargs):
+            raise binascii.Error("bad")
+
+        monkeypatch.setattr(base64, "b64decode", _raise)
+        is_b64, urlsafe = _looks_like_base64(data, min_length=10)
+        assert is_b64 is False
+        assert urlsafe is None
+
+    def test_looks_like_base64url_invalid_decode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        data = "-" * 130
+
+        def _raise(*_args, **_kwargs):
+            raise binascii.Error("bad")
+
+        monkeypatch.setattr(base64, "b64decode", _raise)
+        is_b64, urlsafe = _looks_like_base64(data, min_length=10)
+        assert is_b64 is False
+        assert urlsafe is None
+
+    def test_is_likely_hex_edge_cases(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        oversized = "a" * (MAX_INPUT_LENGTH + 1)
+        assert _is_likely_hex(oversized, min_length=128) is False
+
+        odd_length = "abc"
+        assert _is_likely_hex(odd_length, min_length=1) is False
+
+        data = "aa" * 64
+
+        def _raise(*_args, **_kwargs):
+            raise binascii.Error("bad")
+
+        monkeypatch.setattr(binascii, "unhexlify", _raise)
+        assert _is_likely_hex(data, min_length=128) is False
+
+    def test_try_parse_jwt_alg_edge_cases(self) -> None:
+        oversized = "a" * (MAX_INPUT_LENGTH + 1)
+        assert _try_parse_jwt_alg(oversized) is None
+
+        header = base64.urlsafe_b64encode(json.dumps({"typ": "JWT"}).encode()).decode().rstrip("=")
+        payload = base64.urlsafe_b64encode(b'{"sub":"123"}').decode().rstrip("=")
+        jwt = f"{header}.{payload}.sig"
+        assert _try_parse_jwt_alg(jwt) is None
+
+    def test_safe_truncate_high_surrogate(self) -> None:
+        text = "A" + chr(0xD800) + "B"
+        assert _safe_truncate(text, 2) == "A"
+
 
 class TestBasicFunctionality:
     """基本機能のテスト"""
@@ -176,6 +243,17 @@ class TestDataURI:
         result = sanitize_for_llm_util(short_uri, max_str_length=1000)
         assert result == "[DATA_URI:image/png]"
 
+    def test_data_uri_no_magic_classification(self) -> None:
+        b64 = base64.b64encode(b"a" * 10).decode()
+        uri = f"data:image/png;base64,{b64}"
+        result = sanitize_for_llm_util(uri, classify_base64_magic=False)
+        assert result == "[DATA_URI:image/png]"
+
+    def test_data_uri_empty_payload(self) -> None:
+        uri = "data:image/png;base64,"
+        result = sanitize_for_llm_util(uri, classify_base64_magic=True)
+        assert result == "[DATA_URI:image/png]"
+
 
 class TestJWT:
     """JWT検出のテスト"""
@@ -215,6 +293,11 @@ class TestBase64:
         png = base64.urlsafe_b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 200).decode().rstrip("=")
         result = sanitize_for_llm_util(png, base64_min_length=50)
         assert "[BASE64_DATA" in result
+
+    def test_base64_without_magic(self) -> None:
+        plain = base64.b64encode(b"hello world" * 20).decode()
+        result = sanitize_for_llm_util(plain, base64_min_length=50, classify_base64_magic=True)
+        assert result == "[BASE64_DATA]"
 
 
 class TestHexData:

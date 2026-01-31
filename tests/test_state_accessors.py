@@ -11,6 +11,7 @@ from agent_contracts.state_accessors import (
     set_error,
     clear_error,
 )
+from agent_contracts import Budgets
 
 
 class TestStateAccessor:
@@ -128,6 +129,47 @@ class TestInternalAccessors:
         
         new_state = Internal.error.set(state, "Something went wrong")
         assert Internal.error.get(new_state) == "Something went wrong"
+
+    def test_call_stack(self):
+        """call_stack accessor works."""
+        state = {}
+        assert Internal.call_stack.get(state) == []
+        
+        new_state = Internal.call_stack.set(state, [{"subgraph_id": "sg1"}])
+        assert Internal.call_stack.get(new_state) == [{"subgraph_id": "sg1"}]
+
+    def test_budgets(self):
+        """budgets accessor works."""
+        state = {}
+        assert Internal.budgets.get(state) is None
+        
+        budgets = Budgets(max_depth=3, max_steps=10, max_reentry=1)
+        new_state = Internal.budgets.set(state, budgets)
+        assert Internal.budgets.get(new_state) == budgets
+
+    def test_decision_trace(self):
+        """decision_trace accessor works."""
+        state = {}
+        assert Internal.decision_trace.get(state) == []
+        
+        new_state = Internal.decision_trace.set(state, [{"step": 1, "decision_kind": "NODE"}])
+        assert Internal.decision_trace.get(new_state) == [{"step": 1, "decision_kind": "NODE"}]
+
+    def test_visited_subgraphs(self):
+        """visited_subgraphs accessor works."""
+        state = {}
+        assert Internal.visited_subgraphs.get(state) == {}
+        
+        new_state = Internal.visited_subgraphs.set(state, {"sg1": 1})
+        assert Internal.visited_subgraphs.get(new_state) == {"sg1": 1}
+
+    def test_step_count(self):
+        """step_count accessor works."""
+        state = {}
+        assert Internal.step_count.get(state) == 0
+        
+        new_state = Internal.step_count.set(state, 2)
+        assert Internal.step_count.get(new_state) == 2
 
 
 class TestRequestAccessors:

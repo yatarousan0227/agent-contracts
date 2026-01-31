@@ -272,6 +272,14 @@ class GenericSupervisor:
             else:
                 break
         return selected
+
+    def _get_valid_targets(self) -> set[str]:
+        """Return valid routing targets including CallSubgraph nodes."""
+        valid_nodes = set(self.registry.get_supervisor_nodes(self.name))
+        valid_nodes.add("done")
+        for subgraph_id in self.registry.list_subgraphs():
+            valid_nodes.add(f"call_subgraph::{subgraph_id}")
+        return valid_nodes
     
     def _collect_context_slices(
         self,
@@ -438,8 +446,7 @@ Last active node suggested: {child_decision or 'None'}
             )
             
             # Validate LLM decision against valid nodes
-            valid_nodes = set(self.registry.get_supervisor_nodes(self.name))
-            valid_nodes.add("done")
+            valid_nodes = self._get_valid_targets()
             
             if result.next_node not in valid_nodes:
                 self.logger.warning(
@@ -533,8 +540,7 @@ Last active node suggested: {child_decision or 'None'}
             explicit_target = self.explicit_routing_handler(state)
             if explicit_target:
                 # Validate that the explicit target is a valid node
-                valid_nodes = set(self.registry.get_supervisor_nodes(self.name))
-                valid_nodes.add("done")
+                valid_nodes = self._get_valid_targets()
                 
                 if explicit_target not in valid_nodes:
                     self.logger.warning(

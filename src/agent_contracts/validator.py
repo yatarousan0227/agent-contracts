@@ -119,6 +119,7 @@ class ContractValidator:
         registry: "NodeRegistry",
         known_services: set[str] | None = None,
         strict: bool = False,
+        supervisor_allowlists: dict[str, set[str]] | None = None,
     ) -> None:
         """Initialize the contract validator.
 
@@ -126,12 +127,14 @@ class ContractValidator:
             - registry: Node registry to validate.
             - known_services: Known service names for validation.
             - strict: Treat warnings as errors.
+            - supervisor_allowlists: Optional per-supervisor allowlists.
         Returns:
             - None.
         """
         self._registry = registry
         self._known_services = known_services
         self._strict = strict
+        self._supervisor_allowlists = supervisor_allowlists or {}
     
     def validate(self) -> ValidationResult:
         """Run all validation checks.
@@ -147,6 +150,7 @@ class ContractValidator:
         self._validate_slices(result)
         self._validate_services(result)
         self._validate_reachability(result)
+        self._validate_subgraphs(result)
         self._report_shared_writers(result)
         self._apply_strict_mode(result)
         
@@ -232,6 +236,115 @@ class ContractValidator:
                 writers_str = ", ".join(sorted(writers))
                 result.info.append(
                     f"Shared writers for '{slice_name}': {writers_str}"
+                )
+
+    def _validate_subgraphs(self, result: ValidationResult) -> None:
+        """Validate subgraph boundaries and definitions."""
+        subgraph_ids = self._registry.list_subgraphs()
+        if not subgraph_ids:
+            return
+
+        all_nodes = set(self._registry.get_all_nodes())
+        supervisors = {
+            contract.supervisor
+            for name in self._registry.get_all_nodes()
+            for contract in [self._registry.get_contract(name)]
+            if contract
+        }
+
+        for subgraph_id in subgraph_ids:
+            subgraph = self._registry.get_subgraph(subgraph_id)
+            if subgraph is None:
+                continue
+            contract, definition = subgraph
+
+            entrypoint = contract.entrypoint
+            entry_is_node = entrypoint in all_nodes
+            entry_is_supervisor = entrypoint in supervisors
+            if not (entry_is_node or entry_is_supervisor):
+                result.errors.append(
+                    f"Subgraph '{subgraph_id}' entrypoint '{entrypoint}' "
+                    "not found as node or supervisor"
+                )
+
+            for supervisor in definition.supervisors or []:
+                if supervisor not in supervisors:
+                    result.errors.append(
+                        f"Subgraph '{subgraph_id}' definition references unknown "
+                        f"supervisor '{supervisor}'"
+                    )
+
+            for node_name in definition.nodes or []:
+                if node_name not in all_nodes:
+                    result.errors.append(
+                        f"Subgraph '{subgraph_id}' definition references unknown "
+                        f"node '{node_name}'"
+                    )
+
+            subgraph_nodes = self._resolve_subgraph_nodes(contract, definition)
+            for node_name in sorted(subgraph_nodes):
+                node_contract = self._registry.get_contract(node_name)
+                if not node_contract:
+                    continue
+                extra_reads = set(node_contract.reads) - set(contract.reads)
+                extra_writes = set(node_contract.writes) - set(contract.writes)
+                if extra_reads:
+                    extra_reads_str = ", ".join(sorted(extra_reads))
+                    result.errors.append(
+                        f"Subgraph '{subgraph_id}' boundary violation: node "
+                        f"'{node_name}' reads undeclared slices ({extra_reads_str})"
+                    )
+                if extra_writes:
+                    extra_writes_str = ", ".join(sorted(extra_writes))
+                    result.errors.append(
+                        f"Subgraph '{subgraph_id}' boundary violation: node "
+                        f"'{node_name}' writes undeclared slices ({extra_writes_str})"
+                    )
+
+        self._validate_allowlists(result)
+
+    def _resolve_subgraph_nodes(self, contract, definition) -> set[str]:
+        node_names = set(definition.nodes or [])
+        supervisors = set(definition.supervisors or [])
+
+        if contract.entrypoint in self._registry.get_all_nodes():
+            node_names.add(contract.entrypoint)
+        else:
+            supervisors.add(contract.entrypoint)
+
+        for node_name in node_names:
+            node_contract = self._registry.get_contract(node_name)
+            if node_contract:
+                supervisors.add(node_contract.supervisor)
+
+        if definition.nodes is None:
+            nodes: set[str] = set()
+            for supervisor in supervisors:
+                nodes.update(self._registry.get_supervisor_nodes(supervisor))
+            return nodes
+
+        return node_names
+
+    def _validate_allowlists(self, result: ValidationResult) -> None:
+        if not self._supervisor_allowlists:
+            return
+
+        valid_nodes = set(self._registry.get_all_nodes())
+        valid_subgraphs = set(self._registry.list_subgraphs())
+        for supervisor, allowlist in self._supervisor_allowlists.items():
+            allowlist_values = set(allowlist)
+            for entry in allowlist_values:
+                if entry == "done" or entry in valid_nodes:
+                    continue
+                if entry in valid_subgraphs:
+                    continue
+                if entry.startswith("call_subgraph::"):
+                    subgraph_id = entry[len("call_subgraph::"):]
+                    if subgraph_id in valid_subgraphs:
+                        continue
+                result.warnings.append(
+                    f"Allowlist entry '{entry}' for supervisor '{supervisor}' "
+                    "is not a known node or subgraph"
                 )
 
     def _apply_strict_mode(self, result: ValidationResult) -> None:

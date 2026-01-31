@@ -263,28 +263,34 @@ class ContractVisualizer:
         
         if not supervisors:
             return ""
-        
+        subgraphs = self._export_subgraphs()
+        if not subgraphs:
+            return self._generate_flat_hierarchy_diagram(supervisors)
+
+        return self._generate_subgraph_hierarchy_diagram(supervisors, subgraphs)
+
+    def _generate_flat_hierarchy_diagram(self, supervisors: dict[str, list[str]]) -> str:
         lines = [
             "## 🎯 System Hierarchy",
             "",
             "```mermaid",
             "flowchart TB",
         ]
-        
+
         # Generate subgraphs for each supervisor
         for sup_name, nodes in sorted(supervisors.items()):
             safe_sup = self._safe_id(sup_name)
             lines.append(f'    subgraph {safe_sup}["🎯 {sup_name.replace("_", " ").title()}"]')
             lines.append("        direction LR")
-            
+
             for node_name in nodes:
                 contract = self.registry.get_contract(node_name)
                 icon = self._get_node_icon(contract)
                 safe_node = self._safe_id(node_name)
                 lines.append(f'        {safe_node}["{icon} {node_name}"]')
-            
+
             lines.append("    end")
-        
+
         # Add terminal node styling
         terminal_nodes = [
             self._safe_id(n) for n in self.registry.get_all_nodes()
@@ -294,10 +300,274 @@ class ContractVisualizer:
             lines.append("")
             lines.append("    classDef terminal fill:#e94560,stroke:#16213e,color:#fff")
             lines.append(f"    class {','.join(terminal_nodes)} terminal")
-        
+
         lines.append("```")
-        
+
         return "\n".join(lines)
+
+    def _generate_subgraph_hierarchy_diagram(
+        self,
+        supervisors: dict[str, list[str]],
+        subgraphs: dict[str, dict],
+    ) -> str:
+        lines = [
+            "## 🎯 System Hierarchy",
+            "",
+            "```mermaid",
+            "flowchart TB",
+        ]
+
+        node_to_supervisor: dict[str, str] = {}
+        for sup_name, nodes in supervisors.items():
+            for node_name in nodes:
+                node_to_supervisor[node_name] = sup_name
+
+        all_supervisors = set(supervisors.keys())
+        subgraph_infos: list[dict[str, object]] = []
+        subgraph_nodes: set[str] = set()
+        subgraph_supervisors: set[str] = set()
+        all_nodes = set(node_to_supervisor.keys())
+
+        for subgraph_id, payload in sorted(subgraphs.items()):
+            contract = payload.get("contract") or {}
+            definition = payload.get("definition") or {}
+            nodes, sub_sups = self._resolve_subgraph_scope(contract, definition)
+            nodes = {node for node in nodes if node in all_nodes}
+            entrypoint = contract.get("entrypoint")
+            entrypoint_is_node = entrypoint in all_nodes if isinstance(entrypoint, str) else False
+            entrypoint_kind = "node" if entrypoint_is_node else "supervisor"
+            subgraph_infos.append(
+                {
+                    "id": subgraph_id,
+                    "nodes": nodes,
+                    "supervisors": set(sub_sups),
+                    "entrypoint": entrypoint,
+                    "entrypoint_kind": entrypoint_kind,
+                }
+            )
+            subgraph_nodes.update(nodes)
+            subgraph_supervisors.update(sub_sups)
+
+        outside_nodes_by_supervisor: dict[str, list[str]] = {}
+        for sup_name, nodes in supervisors.items():
+            outside_nodes = [node for node in nodes if node not in subgraph_nodes]
+            if outside_nodes:
+                outside_nodes_by_supervisor[sup_name] = outside_nodes
+
+        # Detect root supervisor from graph entrypoint (for supervisors without nodes)
+        root_supervisors = all_supervisors - subgraph_supervisors
+        root_supervisors_from_graph: set[str] = set()
+        if self.graph is not None:
+            # Try to detect entrypoint from graph
+            if hasattr(self.graph, "get_graph"):
+                try:
+                    drawable = self.graph.get_graph()
+                    if hasattr(drawable, "nodes"):
+                        for node_name in drawable.nodes:
+                            # Look for supervisor nodes that are NOT in subgraph_supervisors
+                            if node_name.endswith("_supervisor"):
+                                sup_name = node_name[:-11]  # Remove "_supervisor" suffix
+                                if sup_name not in subgraph_supervisors and sup_name not in all_supervisors:
+                                    root_supervisors_from_graph.add(sup_name)
+                                    root_supervisors.add(sup_name)
+                except Exception:
+                    pass
+
+        parent_supervisors_by_subgraph: dict[str, set[str]] = {}
+        supervisors_needing_anchor: set[str] = set()
+        for info in subgraph_infos:
+            subgraph_id = info["id"]
+            child_supervisors = info["supervisors"]
+            if root_supervisors:
+                parent_supervisors = set(root_supervisors)
+            else:
+                parent_supervisors = set(all_supervisors - child_supervisors)
+            parent_supervisors_by_subgraph[subgraph_id] = parent_supervisors
+            supervisors_needing_anchor.update(parent_supervisors)
+            if info["entrypoint_kind"] == "supervisor":
+                entrypoint = info["entrypoint"]
+                if isinstance(entrypoint, str) and entrypoint in all_supervisors:
+                    supervisors_needing_anchor.add(entrypoint)
+
+        anchor_ids = {
+            sup: self._safe_mermaid_id(f"supervisor__{sup}") for sup in supervisors_needing_anchor
+        }
+        anchor_locations: dict[str, tuple[str, str | None]] = {}
+        for sup in supervisors_needing_anchor:
+            if sup in outside_nodes_by_supervisor:
+                anchor_locations[sup] = ("outside", None)
+                continue
+            location = None
+            for info in subgraph_infos:
+                if sup in info["supervisors"]:
+                    location = ("subgraph", info["id"])
+                    break
+            if location is None:
+                location = ("outside", None)
+            anchor_locations[sup] = location
+
+        # Render subgraph clusters
+        for info in subgraph_infos:
+            subgraph_id = info["id"]
+            subgraph_label = f"🧩 {subgraph_id}"
+            subgraph_safe_id = self._safe_mermaid_id(f"subgraph__{subgraph_id}")
+            lines.append(f'    subgraph {subgraph_safe_id}["{subgraph_label}"]')
+            lines.append("        direction TB")
+
+            nodes_by_supervisor: dict[str, list[str]] = defaultdict(list)
+            for node_name in sorted(info["nodes"]):
+                supervisor = node_to_supervisor.get(node_name)
+                if supervisor:
+                    nodes_by_supervisor[supervisor].append(node_name)
+
+            supervisors_in_subgraph = set(nodes_by_supervisor.keys()) | set(info["supervisors"])
+            for sup_name in sorted(supervisors_in_subgraph):
+                nodes = nodes_by_supervisor.get(sup_name, [])
+                anchor_here = anchor_locations.get(sup_name) == ("subgraph", subgraph_id)
+                if not nodes and not anchor_here:
+                    continue
+                sup_safe_id = self._safe_mermaid_id(f"{subgraph_safe_id}__sup__{sup_name}")
+                lines.append(
+                    f'        subgraph {sup_safe_id}["🎯 {sup_name.replace("_", " ").title()}"]'
+                )
+                lines.append("            direction LR")
+                if anchor_here:
+                    anchor_id = anchor_ids[sup_name]
+                    lines.append(f'            {anchor_id}["🧭 {sup_name} supervisor"]')
+                for node_name in nodes:
+                    contract = self.registry.get_contract(node_name)
+                    icon = self._get_node_icon(contract)
+                    safe_node = self._safe_id(node_name)
+                    lines.append(f'            {safe_node}["{icon} {node_name}"]')
+                lines.append("        end")
+
+            lines.append("    end")
+
+        # Render top-level supervisors
+        for sup_name, nodes in sorted(outside_nodes_by_supervisor.items()):
+            anchor_here = anchor_locations.get(sup_name) == ("outside", None)
+            if not nodes and not anchor_here:
+                continue
+            sup_safe_id = self._safe_mermaid_id(f"sup__{sup_name}")
+            lines.append(f'    subgraph {sup_safe_id}["🎯 {sup_name.replace("_", " ").title()}"]')
+            lines.append("        direction LR")
+            if anchor_here:
+                anchor_id = anchor_ids[sup_name]
+                lines.append(f'        {anchor_id}["🧭 {sup_name} supervisor"]')
+            for node_name in nodes:
+                contract = self.registry.get_contract(node_name)
+                icon = self._get_node_icon(contract)
+                safe_node = self._safe_id(node_name)
+                lines.append(f'        {safe_node}["{icon} {node_name}"]')
+            lines.append("    end")
+
+        # Render root supervisors without nodes (e.g., domain supervisor)
+        for sup_name in sorted(root_supervisors_from_graph):
+            anchor_id = self._safe_mermaid_id(f"supervisor__{sup_name}")
+            lines.append(f'    {anchor_id}["🧭 {sup_name} supervisor"]')
+
+        # Render call_subgraph nodes
+        call_node_ids: dict[str, str] = {}
+        for info in subgraph_infos:
+            subgraph_id = info["id"]
+            call_node_id = self._safe_mermaid_id(f"call_subgraph__{subgraph_id}")
+            call_node_ids[subgraph_id] = call_node_id
+            lines.append(f'    {call_node_id}["🧩 call_subgraph::{subgraph_id}"]')
+
+        # Call edges
+        for info in subgraph_infos:
+            subgraph_id = info["id"]
+            call_node_id = call_node_ids[subgraph_id]
+            
+            # Edge from root supervisors (without nodes) to call_subgraph
+            for root_sup in sorted(root_supervisors_from_graph):
+                root_anchor = self._safe_mermaid_id(f"supervisor__{root_sup}")
+                lines.append(f"    {root_anchor} -.-> {call_node_id}")
+            
+            # Edge from parent supervisors to call_subgraph
+            for sup_name in sorted(parent_supervisors_by_subgraph.get(subgraph_id, [])):
+                if sup_name in root_supervisors_from_graph:
+                    continue  # Already handled above
+                anchor_id = anchor_ids.get(sup_name)
+                if anchor_id:
+                    lines.append(f"    {anchor_id} -.-> {call_node_id}")
+
+            entrypoint = info["entrypoint"]
+            entrypoint_label = None
+            target_id = None
+            if isinstance(entrypoint, str):
+                if info["entrypoint_kind"] == "node" and entrypoint in all_nodes:
+                    target_id = self._safe_id(entrypoint)
+                    entrypoint_label = entrypoint
+                elif info["entrypoint_kind"] == "supervisor":
+                    target_id = anchor_ids.get(entrypoint)
+                    entrypoint_label = entrypoint
+            if target_id:
+                label = ""
+                if entrypoint_label:
+                    safe_label = entrypoint_label.replace('"', "'").replace("|", "/")
+                    label = f"|entry: {safe_label}| "
+                lines.append(f"    {call_node_id} -->{label}{target_id}")
+
+        # Add terminal node styling
+        terminal_nodes = [
+            self._safe_id(n) for n in self.registry.get_all_nodes()
+            if self.registry.get_contract(n) and self.registry.get_contract(n).is_terminal
+        ]
+        if terminal_nodes:
+            lines.append("")
+            lines.append("    classDef terminal fill:#e94560,stroke:#16213e,color:#fff")
+            lines.append(f"    class {','.join(terminal_nodes)} terminal")
+
+        lines.append("```")
+
+        return "\n".join(lines)
+
+    def _export_subgraphs(self) -> dict[str, dict]:
+        export_fn = getattr(self.registry, "export_subgraphs", None)
+        if not callable(export_fn):
+            return {}
+        try:
+            return export_fn() or {}
+        except Exception as exc:
+            self._debug(
+                f"Subgraph export failed: {type(exc).__name__}: {exc}"
+            )
+            return {}
+
+    def _resolve_subgraph_scope(
+        self,
+        contract: dict,
+        definition: dict,
+    ) -> tuple[set[str], set[str]]:
+        node_names = set(definition.get("nodes") or [])
+        supervisors = set(definition.get("supervisors") or [])
+
+        entrypoint = contract.get("entrypoint")
+        all_nodes = set(self.registry.get_all_nodes())
+
+        if isinstance(entrypoint, str):
+            if entrypoint in all_nodes:
+                node_names.add(entrypoint)
+            else:
+                supervisors.add(entrypoint)
+
+        for node_name in node_names:
+            node_contract = self.registry.get_contract(node_name)
+            if node_contract:
+                supervisors.add(node_contract.supervisor)
+
+        if definition.get("nodes") is None:
+            nodes: set[str] = set()
+            for supervisor in supervisors:
+                nodes.update(self.registry.get_supervisor_nodes(supervisor))
+            return nodes, supervisors
+
+        return node_names, supervisors
+
+    def _safe_mermaid_id(self, name: str) -> str:
+        safe = self._safe_id(name)
+        return safe.replace(":", "_").replace("/", "_")
     
     def _get_node_icon(self, contract: "NodeContract | None") -> str:
         """Get emoji icon for node based on its properties.

@@ -5,7 +5,10 @@ Each node declares and accesses only the slices it needs via Contract.
 """
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent_contracts.runtime.hierarchy import Budgets, CallStackFrame, DecisionTraceItem
 
 
 # =============================================================================
@@ -56,6 +59,11 @@ class BaseInternalSlice(TypedDict, total=False):
         - next_node: Next node to execute.
         - decision: Supervisor decision name.
         - error: Error message if present.
+        - call_stack: Call stack frames for hierarchical execution.
+        - budgets: Execution budgets for hierarchical execution.
+        - decision_trace: Decision trace entries.
+        - visited_subgraphs: Subgraph visit counts.
+        - step_count: Global step counter for wrappers.
     Returns:
         - BaseInternalSlice mapping.
     """
@@ -65,6 +73,11 @@ class BaseInternalSlice(TypedDict, total=False):
     next_node: str | None
     decision: str | None
     error: str | None
+    call_stack: list["CallStackFrame"]
+    budgets: "Budgets"
+    decision_trace: list["DecisionTraceItem"]
+    visited_subgraphs: dict[str, int]
+    step_count: int
 
 
 # =============================================================================
