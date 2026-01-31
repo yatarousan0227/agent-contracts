@@ -26,6 +26,10 @@ from agent_contracts.routing import (
     RoutingReason,
     MatchedRule,
 )
+from agent_contracts.subgraph import (
+    SubgraphContract,
+    SubgraphDefinition,
+)
 from agent_contracts.graph_builder import GraphBuilder, build_graph_from_registry
 from agent_contracts.state import (
     BaseAgentState,
@@ -58,9 +62,12 @@ from agent_contracts.runtime import (
     SessionStore,
     InMemorySessionStore,
     AgentRuntime,
+    Budgets,
+    CallStackFrame,
+    DecisionTraceItem,
 )
 
-__version__ = "0.5.3"
+__version__ = "0.6.0"
 
 __all__ = [
     # Version
@@ -85,6 +92,9 @@ __all__ = [
     "RoutingDecision",
     "RoutingReason",
     "MatchedRule",
+    # Subgraphs
+    "SubgraphContract",
+    "SubgraphDefinition",
     # Graph
     "GraphBuilder",
     "build_graph_from_registry",
@@ -125,4 +135,8 @@ __all__ = [
     "SessionStore",
     "InMemorySessionStore",
     "AgentRuntime",
+    # Hierarchical Runtime Types
+    "Budgets",
+    "CallStackFrame",
+    "DecisionTraceItem",
 ]

@@ -56,12 +56,24 @@ class TestGetStructuredLogger:
 
     def test_returns_structlog_when_available(self):
         """Test returns structlog logger when available."""
-        with patch('agent_contracts.utils.logging._HAS_STRUCTLOG', True):
-            mock_structlog = MagicMock()
-            mock_logger = MagicMock()
-            mock_structlog.get_logger.return_value.bind.return_value = mock_logger
-            
-            with patch.dict('sys.modules', {'structlog': mock_structlog}):
-                with patch('agent_contracts.utils.logging.structlog', mock_structlog, create=True):
-                    # This branch tests when structlog is available
-                    pass
+        import importlib
+        import sys
+        import types
+
+        import agent_contracts.utils.logging as logging_utils
+
+        mock_logger = MagicMock()
+        mock_structlog = types.SimpleNamespace()
+        mock_structlog.get_logger = MagicMock(
+            return_value=MagicMock(bind=MagicMock(return_value=mock_logger))
+        )
+
+        original = logging_utils
+        sys.modules["structlog"] = mock_structlog
+        try:
+            reloaded = importlib.reload(logging_utils)
+            logger = reloaded.get_structured_logger("test", foo="bar")
+            assert logger is mock_logger
+        finally:
+            sys.modules.pop("structlog", None)
+            importlib.reload(original)

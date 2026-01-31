@@ -9,6 +9,8 @@ from agent_contracts import (
     NodeInputs,
     NodeOutputs,
     ContractVisualizer,
+    SubgraphContract,
+    SubgraphDefinition,
 )
 
 
@@ -358,6 +360,54 @@ class TestLangGraphFlow:
         visualizer.graph = mock_graph
         assert visualizer.generate_langgraph_flow() == ""
 
+    def test_generate_langgraph_flow_bytes_mermaid(self, registry: NodeRegistry):
+        class Drawable:
+            def draw_mermaid(self):
+                return b"graph TD\n  A --> B"
+
+        class Graph:
+            def get_graph(self):
+                return Drawable()
+
+        viz = ContractVisualizer(registry, graph=Graph())
+        section = viz.generate_langgraph_flow()
+        assert "graph TD" in section
+        assert "A --> B" in section
+
+    def test_generate_langgraph_flow_non_string_mermaid(self, registry: NodeRegistry):
+        class Graph:
+            def draw_mermaid(self):
+                return 123
+
+        viz = ContractVisualizer(registry, graph=Graph())
+        assert viz.generate_langgraph_flow() == ""
+
+    def test_generate_langgraph_flow_get_graph_requires_arg(self, registry: NodeRegistry):
+        class Drawable:
+            def to_mermaid(self):
+                return "graph TD\n  X --> Y"
+
+        class Graph:
+            def get_graph(self, _payload):
+                return Drawable()
+
+        viz = ContractVisualizer(registry, graph=Graph())
+        section = viz.generate_langgraph_flow()
+        assert "graph TD" in section
+        assert "X --> Y" in section
+
+
+class TestSubgraphExport:
+    def test_export_subgraphs_handles_exception(self):
+        registry = MagicMock()
+
+        def _raise():
+            raise RuntimeError("boom")
+
+        registry.export_subgraphs = _raise
+        viz = ContractVisualizer(registry)
+        assert viz._export_subgraphs() == {}
+
 
 class TestDetailedDependencies:
     """Tests for detailed dependency generation."""
@@ -693,3 +743,59 @@ class TestVisualizerEdgeCases:
         assert "Nodes Reference" in section
         assert "| Node | Supervisor |" in section
         assert "| node1 |" not in section
+
+
+class TestHierarchySubgraphs:
+    """Tests for hierarchy diagram with subgraphs."""
+
+    def test_hierarchy_diagram_includes_subgraph_calls(self):
+        class ParentNode(ModularNode):
+            CONTRACT = NodeContract(
+                name="parent_node",
+                description="Parent node",
+                reads=["request"],
+                writes=["response"],
+                supervisor="main",
+            )
+
+            async def execute(self, inputs): return NodeOutputs()
+
+        class ChildNode(ModularNode):
+            CONTRACT = NodeContract(
+                name="child_node",
+                description="Child node",
+                reads=["request"],
+                writes=["response"],
+                supervisor="child",
+            )
+
+            async def execute(self, inputs): return NodeOutputs()
+
+        registry = NodeRegistry()
+        registry.register(ParentNode)
+        registry.register(ChildNode)
+
+        contract = SubgraphContract(
+            subgraph_id="child_graph",
+            description="Child subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="child",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="child_graph",
+            supervisors=["child"],
+            nodes=["child_node"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        viz = ContractVisualizer(registry)
+        section = viz.generate_hierarchy_diagram()
+
+        assert "🧩 child_graph" in section
+        assert "call_subgraph::child_graph" in section
+        assert "entry: child" in section
+        assert any(
+            "call_subgraph__child_graph" in line and "-.->" in line
+            for line in section.splitlines()
+        )

@@ -14,7 +14,10 @@ from agent_contracts import (
     NodeRegistry,
     GraphBuilder,
     build_graph_from_registry,
+    SubgraphContract,
+    SubgraphDefinition,
 )
+from agent_contracts.runtime.hierarchy import Budgets
 
 
 # =============================================================================
@@ -73,6 +76,13 @@ class SampleNodeWithLLM(ModularNode):
     
     async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
         return NodeOutputs(response={"from": "node_with_llm"})
+
+
+def _make_registry() -> NodeRegistry:
+    reg = NodeRegistry()
+    reg.register(SampleNodeA)
+    reg.register(SampleNodeB)
+    return reg
 
 
 # =============================================================================
@@ -252,6 +262,27 @@ class TestGraphBuilder:
         result = await wrapper({})
         
         assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_supervisor_wrapper_preserves_response_updates(self, registry):
+        """Supervisor response updates should not be overwritten."""
+        class ResponseSupervisor:
+            async def run(self, state, config=None) -> dict:
+                internal = state.get("_internal", {})
+                if not isinstance(internal, dict):
+                    internal = {}
+                return {
+                    "_internal": {**internal, "decision": "done"},
+                    "response": {"response_type": "terminal", "response_message": "stop"},
+                }
+
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.supervisor_instances["main"] = ResponseSupervisor()
+
+        wrapper = builder.create_supervisor_wrapper("main")
+        result = await wrapper({"response": {}, "_internal": {}})
+
+        assert result["response"]["response_type"] == "terminal"
 
     @pytest.mark.asyncio
     async def test_supervisor_wrapper_with_llm_provider(self, registry):
@@ -497,3 +528,330 @@ class TestBuildGraphFromRegistry:
         
         assert isinstance(graph, StateGraph)
         assert "main_supervisor" in graph.nodes
+
+
+class TestGraphBuilderInternals:
+    def test_return_state_merges_for_typed_state(self):
+        builder = GraphBuilder(state_class=type("State", (), {}))
+        state = {"response": {"a": 1}}
+        updates = {"response": {"b": 2}}
+        assert builder._return_state(state, updates) == {"response": {"a": 1, "b": 2}}
+
+    def test_add_supervisor_with_explicit_llm(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry)
+        builder.add_supervisor("main", llm="provided")
+        assert "main" in builder.supervisor_names
+
+    def test_add_supervisor_respects_node_allowlist(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, node_allowlist={"node_a"})
+        builder.add_supervisor("main")
+        assert "node_b" not in builder.node_classes
+
+    def test_add_supervisor_skips_missing_node_class(self, monkeypatch):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry)
+        monkeypatch.setattr(registry, "get_supervisor_nodes", lambda _name: ["ghost"])
+        monkeypatch.setattr(registry, "get_node_class", lambda _name: None)
+        builder.add_supervisor("main")
+        assert builder.node_classes == {}
+
+    def test_list_call_subgraph_nodes(self):
+        registry = NodeRegistry()
+        contract = SubgraphContract(
+            subgraph_id="sg1",
+            description="subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(subgraph_id="sg1", supervisors=["main"])
+        registry.register_subgraph(contract, definition)
+
+        builder = GraphBuilder(registry=registry)
+        assert builder._list_call_subgraph_nodes() == ["call_subgraph__sg1"]
+
+    def test_get_internal_non_dict(self):
+        builder = GraphBuilder()
+        assert builder._get_internal({"_internal": "nope"}) == {}
+
+    def test_increment_step_invalid_value(self):
+        builder = GraphBuilder()
+        internal, step = builder._increment_step({"step_count": "bad"})
+        assert step == 1
+        assert internal["step_count"] == 1
+
+    def test_normalize_budgets_from_instance(self):
+        builder = GraphBuilder()
+        internal, budgets = builder._normalize_budgets({"budgets": Budgets(max_depth=1)})
+        assert budgets.max_depth == 1
+        assert internal["budgets"]["max_depth"] == 1
+
+    def test_decision_kind_for_supervisor_terminal_and_fallback(self, monkeypatch):
+        builder = GraphBuilder()
+
+        class DummySupervisorConfig:
+            terminal_response_types = ["terminal"]
+
+        class DummyConfig:
+            supervisor = DummySupervisorConfig()
+
+        monkeypatch.setattr("agent_contracts.graph_builder.get_config", lambda: DummyConfig())
+        assert builder._decision_kind_for_supervisor("done", 0, "terminal") == "STOP_GLOBAL"
+        assert builder._decision_kind_for_supervisor(None, 0, None) == "FALLBACK"
+
+    def test_get_allowlist_from_supervisor_instance(self):
+        builder = GraphBuilder()
+
+        class DummySupervisor:
+            allowlist = ["node_a", "done"]
+
+        allowlist = builder._get_allowlist("main", DummySupervisor())
+        assert allowlist == {"node_a", "done"}
+
+    def test_get_allowlist_falls_back_to_configured_list(self):
+        builder = GraphBuilder(supervisor_allowlists={"main": {"node_a"}})
+
+        class DummySupervisor:
+            allowlist = []
+
+        allowlist = builder._get_allowlist("main", DummySupervisor())
+        assert allowlist == {"node_a"}
+
+    def test_is_decision_allowed_variants(self):
+        builder = GraphBuilder()
+        allowlist = {"node_a", "child_graph"}
+        assert builder._is_decision_allowed("done", allowlist) is True
+        assert builder._is_decision_allowed("node_a", allowlist) is True
+        assert builder._is_decision_allowed("call_subgraph::child_graph", allowlist) is True
+        assert builder._is_decision_allowed("node_b", allowlist) is False
+
+    def test_build_terminal_response_with_non_dict_response(self):
+        builder = GraphBuilder()
+        response = builder._build_terminal_response({"response": "nope"}, "reason")
+        assert response["response_type"] == "terminal"
+        assert response["response_message"] == "reason"
+
+    @pytest.mark.asyncio
+    async def test_create_node_wrapper_with_internal_updates(self):
+        registry = _make_registry()
+        class NodeWithInternal(ModularNode):
+            CONTRACT = NodeContract(
+                name="node_internal",
+                description="Node with internal updates",
+                reads=["request"],
+                writes=["response", "_internal"],
+                supervisor="main",
+                trigger_conditions=[TriggerCondition(priority=1)],
+            )
+
+            async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+                return NodeOutputs(_internal={"foo": "bar"})
+
+        registry.register(NodeWithInternal)
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.add_supervisor("main")
+
+        wrapper = builder.create_node_wrapper("node_internal")
+        result = await wrapper({"request": {}, "_internal": {}})
+        assert result["_internal"]["foo"] == "bar"
+
+    @pytest.mark.asyncio
+    async def test_create_supervisor_wrapper_targets_and_response(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.add_supervisor("main")
+
+        class FakeSupervisor:
+            async def run(self, state, config=None):
+                return {"_internal": {"decision": "call_subgraph::child_graph"}, "response": {}}
+
+        builder.supervisor_instances["main"] = FakeSupervisor()
+        wrapper = builder.create_supervisor_wrapper("main")
+        result = await wrapper({"response": {"response_type": "ok"}, "_internal": {}})
+        assert result["_internal"]["decision"] == "call_subgraph::child_graph"
+
+    @pytest.mark.asyncio
+    async def test_create_supervisor_wrapper_copies_response_when_missing(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.add_supervisor("main")
+
+        class FakeSupervisor:
+            async def run(self, state, config=None):
+                return {"_internal": {"decision": "done"}}
+
+        builder.supervisor_instances["main"] = FakeSupervisor()
+        wrapper = builder.create_supervisor_wrapper("main")
+        result = await wrapper({"response": {"response_type": "ok"}, "_internal": {}})
+        assert result["response"]["response_type"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_create_supervisor_wrapper_without_internal_updates(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.add_supervisor("main")
+
+        class FakeSupervisor:
+            async def run(self, state, config=None):
+                return {}
+
+        builder.supervisor_instances["main"] = FakeSupervisor()
+        wrapper = builder.create_supervisor_wrapper("main")
+        result = await wrapper({"response": "nope", "_internal": {"decision": None}})
+        assert result["_internal"]["decision"] is None
+
+    def test_resolve_subgraph_members_errors_and_missing_contract(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry)
+        with pytest.raises(ValueError):
+            builder._resolve_subgraph_members("missing")
+
+        contract = SubgraphContract(
+            subgraph_id="sg_missing_node",
+            description="Missing node subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_missing_node",
+            supervisors=["main"],
+            nodes=["ghost"],
+        )
+        registry.register_subgraph(contract, definition)
+        supervisors, node_allowlist, entry = builder._resolve_subgraph_members("sg_missing_node")
+        assert entry == "main"
+        assert node_allowlist == {"ghost"}
+        assert supervisors == ["main"]
+
+    def test_build_subgraph_graph_errors(self, monkeypatch):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry)
+        monkeypatch.setattr(builder, "_resolve_subgraph_members", lambda _subgraph_id: ([], None, "main"))
+        with pytest.raises(ValueError):
+            builder._build_subgraph_graph("sg_empty")
+
+    def test_build_subgraph_graph_missing_entrypoint(self, monkeypatch):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry)
+        monkeypatch.setattr(builder, "_resolve_subgraph_members", lambda _subgraph_id: (["main"], None, "missing"))
+        monkeypatch.setattr(
+            "agent_contracts.graph_builder.build_graph_from_registry",
+            lambda **_kwargs: StateGraph(dict),
+        )
+        with pytest.raises(ValueError):
+            builder._build_subgraph_graph("sg_missing_entry")
+
+    def test_get_compiled_subgraph_uses_cache(self):
+        builder = GraphBuilder()
+        builder.subgraph_cache["sg_cached"] = "compiled"
+        assert builder._get_compiled_subgraph("sg_cached") == "compiled"
+
+    @pytest.mark.asyncio
+    async def test_call_subgraph_wrapper_disabled(self):
+        builder = GraphBuilder(enable_subgraphs=False)
+        wrapper = builder.create_call_subgraph_wrapper("sg1")
+        assert await wrapper({"_internal": {}}) == {}
+
+    @pytest.mark.asyncio
+    async def test_call_subgraph_wrapper_child_result_not_dict(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.subgraph_cache["sg1"] = AsyncMock(ainvoke=AsyncMock(return_value="nope"))
+
+        wrapper = builder.create_call_subgraph_wrapper("sg1")
+        result = await wrapper({"_internal": {"call_stack": "nope", "visited_subgraphs": "nope"}})
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_call_subgraph_wrapper_child_internal_handling(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.subgraph_cache["sg1"] = AsyncMock(
+            ainvoke=AsyncMock(return_value={"_internal": "nope"})
+        )
+
+        wrapper = builder.create_call_subgraph_wrapper("sg1")
+        result = await wrapper({"_internal": {"call_stack": "nope", "visited_subgraphs": "nope"}})
+        assert result["_internal"].get("return_to_supervisor") is None
+
+    @pytest.mark.asyncio
+    async def test_call_subgraph_wrapper_child_stack_non_list(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.subgraph_cache["sg1"] = AsyncMock(
+            ainvoke=AsyncMock(return_value={"_internal": {"call_stack": "nope"}})
+        )
+
+        wrapper = builder.create_call_subgraph_wrapper("sg1")
+        result = await wrapper({"_internal": {}})
+        assert isinstance(result["_internal"].get("call_stack"), list)
+
+    @pytest.mark.asyncio
+    async def test_call_subgraph_wrapper_return_to_from_stack(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.subgraph_cache["sg1"] = AsyncMock(
+            ainvoke=AsyncMock(
+                return_value={
+                    "_internal": {
+                        "call_stack": [
+                            {"locals": {"parent_supervisor": "main"}},
+                        ]
+                    }
+                }
+            )
+        )
+
+        wrapper = builder.create_call_subgraph_wrapper("sg1")
+        result = await wrapper({"_internal": {}})
+        assert result["_internal"]["return_to_supervisor"] == "main"
+
+    @pytest.mark.asyncio
+    async def test_call_subgraph_wrapper_locals_not_dict(self):
+        registry = _make_registry()
+        builder = GraphBuilder(registry=registry, enable_subgraphs=True)
+        builder.subgraph_cache["sg1"] = AsyncMock(
+            ainvoke=AsyncMock(
+                return_value={
+                    "_internal": {
+                        "call_stack": [
+                            {"locals": "nope"},
+                        ]
+                    }
+                }
+            )
+        )
+
+        wrapper = builder.create_call_subgraph_wrapper("sg1")
+        result = await wrapper({"_internal": {"last_supervisor": "main"}})
+        assert result["_internal"]["return_to_supervisor"] == "main"
+
+    def test_call_subgraph_return_router(self):
+        builder = GraphBuilder(enable_subgraphs=True)
+        route = builder.create_call_subgraph_return_router()
+        assert route({"_internal": "nope"}) == END
+        assert route({"_internal": {"return_to_supervisor": 123}}) == END
+
+    def test_build_graph_from_registry_subgraph_prefix_errors(self):
+        registry = _make_registry()
+        class BadNode(ModularNode):
+            CONTRACT = NodeContract(
+                name="call_subgraph__bad",
+                description="Bad node",
+                reads=[],
+                writes=[],
+                supervisor="main",
+            )
+            async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+                return NodeOutputs()
+
+        registry.register(BadNode)
+        with pytest.raises(ValueError):
+            build_graph_from_registry(
+                registry=registry,
+                supervisors=["main"],
+                enable_subgraphs=True,
+            )

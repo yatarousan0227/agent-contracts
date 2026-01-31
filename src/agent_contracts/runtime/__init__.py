@@ -12,6 +12,7 @@ from agent_contracts.runtime.context import RequestContext, ExecutionResult
 from agent_contracts.runtime.hooks import RuntimeHooks, DefaultHooks
 from agent_contracts.runtime.session import SessionStore, InMemorySessionStore
 from agent_contracts.runtime.executor import AgentRuntime
+from agent_contracts.runtime.hierarchy import Budgets, CallStackFrame, DecisionTraceItem
 from agent_contracts.runtime.state_ops import (
     ensure_slices,
     merge_session,
@@ -43,6 +44,10 @@ __all__ = [
     "InMemorySessionStore",
     # Executor
     "AgentRuntime",
+    # Hierarchy Types
+    "Budgets",
+    "CallStackFrame",
+    "DecisionTraceItem",
     # Streaming
     "StreamEvent",
     "StreamEventType",

@@ -30,7 +30,7 @@ jobs:
           pip install -e ".[dev]"
       
       - name: Run tests
-        run: pytest tests/ -v
+        run: pytest tests/ -v --cov=src/agent_contracts --cov-branch --cov-fail-under=95
       
       - name: Run examples
         run: |

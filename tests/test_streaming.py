@@ -346,7 +346,7 @@ class TestStreamingRuntimeWithGraph:
         
         # Mock graph with astream
         class MockGraph:
-            async def astream(self, state, stream_mode="updates"):
+            async def astream(self, state, stream_mode="updates", **kwargs):
                 yield {"node1": {"response": {"type": "test"}}}
                 yield {"node2": {"data": "value"}}
         
@@ -370,7 +370,7 @@ class TestStreamingRuntimeWithGraph:
             def __init__(self):
                 self.seen_state = None
 
-            async def astream(self, state, stream_mode="updates"):
+            async def astream(self, state, stream_mode="updates", **kwargs):
                 self.seen_state = state
                 yield {"node1": {"response": {"response_type": "test"}}}
 
@@ -394,7 +394,7 @@ class TestStreamingRuntimeWithGraph:
         runtime = StreamingRuntime()
         
         class MockGraph:
-            async def astream(self, state, stream_mode="values"):
+            async def astream(self, state, stream_mode="values", **kwargs):
                 yield {"response": {"response_type": "interview"}}
         
         events = []
@@ -414,7 +414,7 @@ class TestStreamingRuntimeWithGraph:
         runtime = StreamingRuntime()
         
         class FailingGraph:
-            async def astream(self, state, stream_mode="updates"):
+            async def astream(self, state, stream_mode="updates", **kwargs):
                 raise RuntimeError("Graph failed")
                 yield  # Make it a generator
         
@@ -436,7 +436,7 @@ class TestStreamingRuntimeWithGraph:
                 return {"shopping": {"restored": True}}
         
         class MockGraph:
-            async def astream(self, state, stream_mode="updates"):
+            async def astream(self, state, stream_mode="updates", **kwargs):
                 # Return the state to verify restoration
                 yield {"result": {"state": state}}
         
@@ -451,5 +451,41 @@ class TestStreamingRuntimeWithGraph:
             graph=MockGraph(),
         ):
             events.append(event)
+        
+        assert events[-1].type == StreamEventType.DONE
+
+    @pytest.mark.asyncio
+    async def test_stream_with_graph_include_subgraphs(self):
+        """stream_with_graph includes subgraph events when include_subgraphs=True."""
+        runtime = StreamingRuntime()
+        
+        # Mock graph that returns subgraph-style events (namespace, data) tuples
+        class MockGraphWithSubgraphs:
+            async def astream(self, state, stream_mode="updates", subgraphs=True):
+                # Simulate parent graph node
+                yield ((), {"parent_node": {"response": {"type": "parent"}}})
+                # Simulate subgraph node (namespace shows path)
+                yield (("subgraph:abc123",), {"child_node": {"data": "from_subgraph"}})
+                # Simulate nested subgraph
+                yield (("subgraph:abc123", "nested:def456"), {"deep_node": {"data": "nested"}})
+        
+        events = []
+        async for event in runtime.stream_with_graph(
+            RequestContext(session_id="abc", action="test"),
+            graph=MockGraphWithSubgraphs(),
+            stream_mode="updates",
+            include_subgraphs=True,
+        ):
+            events.append(event)
+        
+        # Should have 3 node_end events + done
+        node_events = [e for e in events if e.type == StreamEventType.NODE_END]
+        assert len(node_events) == 3
+        
+        # Check node names include subgraph path
+        node_names = [e.node_name for e in node_events]
+        assert "parent_node" in node_names
+        assert "child_node::subgraph" in node_names
+        assert "deep_node::subgraph::nested" in node_names
         
         assert events[-1].type == StreamEventType.DONE

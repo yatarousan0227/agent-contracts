@@ -253,6 +253,7 @@ class StreamingRuntime:
         graph: Any,
         stream_mode: Literal["values", "updates", "debug"] = "updates",
         initial_state: dict[str, Any] | None = None,
+        include_subgraphs: bool = True,
     ) -> AsyncIterator[StreamEvent]:
         """Stream execution using LangGraph's native streaming.
 
@@ -261,6 +262,7 @@ class StreamingRuntime:
             - graph: Compiled LangGraph graph.
             - stream_mode: LangGraph stream mode ("values", "updates", "debug").
             - initial_state: Optional pre-built initial state.
+            - include_subgraphs: If True, stream events from subgraphs too.
         Returns:
             - Async iterator of StreamEvent instances.
         """
@@ -288,8 +290,38 @@ class StreamingRuntime:
             
             # Stream from graph
             final_state = state
-            async for chunk in graph.astream(state, stream_mode=stream_mode):
-                if stream_mode == "updates":
+            async for chunk in graph.astream(
+                state,
+                stream_mode=stream_mode,
+                subgraphs=include_subgraphs,
+            ):
+                # When subgraphs=True, chunk is (namespace, data) tuple
+                if include_subgraphs and isinstance(chunk, tuple) and len(chunk) == 2:
+                    namespace, data = chunk
+                    # namespace is tuple of strings like ("parent:task_id", "child:task_id")
+                    # Extract the last node name from namespace
+                    subgraph_path = "::" + "::".join(
+                        ns.split(":")[0] for ns in namespace
+                    ) if namespace else ""
+                    
+                    if stream_mode == "updates" and isinstance(data, dict):
+                        for node_name, update in data.items():
+                            full_node_name = f"{node_name}{subgraph_path}" if subgraph_path else node_name
+                            yield StreamEvent(
+                                type=StreamEventType.NODE_END,
+                                node_name=full_node_name,
+                                data=update if isinstance(update, dict) else {"value": update},
+                            )
+                            if isinstance(update, dict):
+                                final_state = apply_slice_updates(final_state, update)
+                    else:
+                        yield StreamEvent(
+                            type=StreamEventType.DATA,
+                            data=data if isinstance(data, dict) else {"value": data},
+                        )
+                        if isinstance(data, dict):
+                            final_state = data
+                elif stream_mode == "updates":
                     # chunk is dict of {node_name: update}
                     for node_name, update in chunk.items():
                         yield StreamEvent(

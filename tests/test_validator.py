@@ -7,6 +7,8 @@ from agent_contracts import (
     NodeInputs,
     NodeOutputs,
     TriggerCondition,
+    SubgraphContract,
+    SubgraphDefinition,
 )
 from agent_contracts.registry import NodeRegistry
 from agent_contracts.validator import ContractValidator, ValidationResult
@@ -132,6 +134,36 @@ class RequestWriterNode(ModularNode):
     
     async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
         return NodeOutputs(request={"mutated": True})
+
+
+class SubgraphGoodNode(ModularNode):
+    """A subgraph node that stays within the boundary."""
+    CONTRACT = NodeContract(
+        name="subgraph_good_node",
+        description="Subgraph-good node",
+        reads=["request"],
+        writes=["response"],
+        supervisor="subgraph_supervisor",
+        trigger_conditions=[TriggerCondition(priority=1)],
+    )
+
+    async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+        return NodeOutputs(response={"ok": True})
+
+
+class SubgraphBadNode(ModularNode):
+    """A subgraph node that violates the boundary."""
+    CONTRACT = NodeContract(
+        name="subgraph_bad_node",
+        description="Subgraph-bad node",
+        reads=["request", "extra_slice"],
+        writes=["response"],
+        supervisor="subgraph_supervisor",
+        trigger_conditions=[TriggerCondition(priority=1)],
+    )
+
+    async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+        return NodeOutputs(response={"ok": False})
 
 
 # =============================================================================
@@ -292,6 +324,141 @@ class TestContractValidator:
         assert result.has_errors
         assert not result.has_warnings
         assert any("STRICT:" in e for e in result.errors)
+
+    def test_subgraph_boundary_violation_error(self):
+        """Subgraph boundary violations should be errors."""
+        registry = NodeRegistry()
+        registry.add_valid_slice("extra_slice")
+        registry.register(SubgraphGoodNode)
+        registry.register(SubgraphBadNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_boundary",
+            description="Boundary test subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="subgraph_supervisor",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_boundary",
+            supervisors=["subgraph_supervisor"],
+            nodes=["subgraph_good_node", "subgraph_bad_node"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(registry)
+        result = validator.validate()
+
+        assert result.has_errors
+        assert any(
+            "boundary violation" in e and "subgraph_bad_node" in e
+            for e in result.errors
+        )
+
+    def test_subgraph_entrypoint_missing_error(self):
+        """Missing subgraph entrypoint should be an error."""
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_missing_entry",
+            description="Missing entrypoint subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="missing_entrypoint",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_missing_entry",
+            supervisors=["main"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(registry)
+        result = validator.validate()
+
+        assert result.has_errors
+        assert any("entrypoint" in e for e in result.errors)
+
+    def test_subgraph_definition_missing_node_error(self):
+        """Unknown node in subgraph definition should be an error."""
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_missing_node",
+            description="Missing node subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_missing_node",
+            supervisors=["main"],
+            nodes=["missing_node"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(registry)
+        result = validator.validate()
+
+        assert result.has_errors
+        assert any("unknown node" in e for e in result.errors)
+
+    def test_allowlist_unknown_entry_warning(self):
+        """Unknown allowlist entries should warn."""
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_allowlist",
+            description="Allowlist test subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_allowlist",
+            supervisors=["main"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(
+            registry,
+            supervisor_allowlists={"main": {"missing_node"}},
+        )
+        result = validator.validate()
+
+        assert result.has_warnings
+        assert any("Allowlist entry" in w for w in result.warnings)
+
+    def test_allowlist_unknown_entry_strict_error(self):
+        """Strict mode should escalate allowlist warnings to errors."""
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_allowlist_strict",
+            description="Allowlist strict test subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_allowlist_strict",
+            supervisors=["main"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(
+            registry,
+            strict=True,
+            supervisor_allowlists={"main": {"missing_node"}},
+        )
+        result = validator.validate()
+
+        assert result.has_errors
+        assert not result.has_warnings
+        assert any("STRICT:" in e and "Allowlist entry" in e for e in result.errors)
     
     def test_get_shared_writers(self):
         """get_shared_writers should return correct mapping."""
@@ -382,3 +549,259 @@ class TestContractValidator:
         
         # request should NOT be flagged as read_only (it's an input slice)
         assert "request" not in unused
+
+
+class TestContractValidatorBranches:
+    """Additional branch coverage for ContractValidator."""
+
+    def test_validate_slices_skips_missing_contract(self):
+        class StubRegistry:
+            _valid_slices = {"request", "response", "_internal"}
+
+            def get_all_nodes(self):
+                return ["ghost"]
+
+            def get_contract(self, _name):
+                return None
+
+        validator = ContractValidator(StubRegistry())
+        result = ValidationResult()
+        validator._validate_slices(result)
+        assert result.errors == []
+
+    def test_validate_services_skips_missing_contract(self):
+        class StubRegistry:
+            def get_all_nodes(self):
+                return ["ghost"]
+
+            def get_contract(self, _name):
+                return None
+
+        validator = ContractValidator(StubRegistry(), known_services={"svc"})
+        result = ValidationResult()
+        validator._validate_services(result)
+        assert result.warnings == []
+
+    def test_validate_reachability_skips_missing_contract(self):
+        class StubRegistry:
+            def get_all_nodes(self):
+                return ["ghost"]
+
+            def get_contract(self, _name):
+                return None
+
+        validator = ContractValidator(StubRegistry())
+        result = ValidationResult()
+        validator._validate_reachability(result)
+        assert result.warnings == []
+
+    def test_validate_services_known_service_no_warning(self):
+        class NodeWithKnownService(ModularNode):
+            CONTRACT = NodeContract(
+                name="known_service_node",
+                description="Known service node",
+                reads=["request"],
+                writes=["response"],
+                services=["db_service"],
+                supervisor="main",
+                trigger_conditions=[TriggerCondition(priority=1)],
+            )
+
+            async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+                return NodeOutputs(response={"done": True})
+
+        registry = NodeRegistry()
+        registry.register(NodeWithKnownService)
+
+        validator = ContractValidator(registry, known_services={"db_service"})
+        result = validator.validate()
+        assert not any("Unknown service" in w for w in result.warnings)
+
+    def test_unknown_write_slice_detected(self):
+        class NodeWithUnknownWrite(ModularNode):
+            CONTRACT = NodeContract(
+                name="unknown_write_node",
+                description="Unknown write slice",
+                reads=["request"],
+                writes=["invalid_write"],
+                supervisor="main",
+                trigger_conditions=[TriggerCondition(priority=1)],
+            )
+
+            async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+                return NodeOutputs(response={"done": True})
+
+        registry = NodeRegistry()
+        registry.register(NodeWithUnknownWrite)
+        validator = ContractValidator(registry)
+        result = validator.validate()
+        assert any("invalid_write" in e for e in result.errors)
+
+    def test_validate_subgraphs_skips_missing_subgraph(self):
+        class StubRegistry:
+            def list_subgraphs(self):
+                return ["missing_subgraph"]
+
+            def get_subgraph(self, _subgraph_id):
+                return None
+
+            def get_all_nodes(self):
+                return []
+
+            def get_contract(self, _name):
+                return None
+
+        validator = ContractValidator(StubRegistry())
+        result = ValidationResult()
+        validator._validate_subgraphs(result)
+        assert result.errors == []
+
+    def test_validate_subgraphs_unknown_supervisor(self):
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_unknown_supervisor",
+            description="Unknown supervisor subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_unknown_supervisor",
+            supervisors=["ghost_supervisor"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(registry)
+        result = validator.validate()
+        assert any("unknown supervisor" in e for e in result.errors)
+
+    def test_subgraph_boundary_violation_extra_writes(self):
+        class SubgraphWriteViolationNode(ModularNode):
+            CONTRACT = NodeContract(
+                name="subgraph_write_violation",
+                description="Subgraph write violation node",
+                reads=["request"],
+                writes=["response", "extra_output"],
+                supervisor="subgraph_supervisor",
+                trigger_conditions=[TriggerCondition(priority=1)],
+            )
+
+            async def execute(self, inputs: NodeInputs, config=None) -> NodeOutputs:
+                return NodeOutputs(response={"ok": False})
+
+        registry = NodeRegistry()
+        registry.add_valid_slice("extra_output")
+        registry.register(SubgraphWriteViolationNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_write_violation",
+            description="Write violation subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="subgraph_supervisor",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_write_violation",
+            supervisors=["subgraph_supervisor"],
+            nodes=["subgraph_write_violation"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(registry)
+        result = validator.validate()
+        assert any("writes undeclared slices" in e for e in result.errors)
+
+    def test_resolve_subgraph_nodes_entrypoint_node(self):
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+        registry.register(AnotherValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_entrypoint_node",
+            description="Entrypoint node subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="valid_node",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_entrypoint_node",
+            supervisors=["main"],
+            nodes=None,
+        )
+
+        validator = ContractValidator(registry)
+        nodes = validator._resolve_subgraph_nodes(contract, definition)
+        assert "valid_node" in nodes
+
+    def test_allowlist_valid_entries_no_warning(self):
+        registry = NodeRegistry()
+        registry.register(ValidNode)
+
+        contract = SubgraphContract(
+            subgraph_id="sg_allowlist_ok",
+            description="Allowlist ok subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_allowlist_ok",
+            supervisors=["main"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(
+            registry,
+            supervisor_allowlists={
+                "main": {"done", "valid_node", "sg_allowlist_ok", "call_subgraph::sg_allowlist_ok"},
+            },
+        )
+        result = validator.validate()
+        assert not result.warnings
+
+    def test_allowlist_call_subgraph_entry_skipped(self):
+        registry = NodeRegistry()
+        contract = SubgraphContract(
+            subgraph_id="sg_allowlist_call",
+            description="Allowlist call subgraph",
+            reads=["request"],
+            writes=["response"],
+            entrypoint="main",
+        )
+        definition = SubgraphDefinition(
+            subgraph_id="sg_allowlist_call",
+            supervisors=["main"],
+        )
+        registry.register_subgraph(contract, definition)
+
+        validator = ContractValidator(
+            registry,
+            supervisor_allowlists={"main": {"call_subgraph::sg_allowlist_call"}},
+        )
+        result = ValidationResult()
+        validator._validate_allowlists(result)
+        assert result.warnings == []
+
+    def test_shared_writers_skips_missing_contract(self):
+        class StubRegistry:
+            def get_all_nodes(self):
+                return ["ghost"]
+
+            def get_contract(self, _name):
+                return None
+
+        validator = ContractValidator(StubRegistry())
+        assert validator.get_shared_writers() == {}
+
+    def test_slice_readers_skips_missing_contract(self):
+        class StubRegistry:
+            def get_all_nodes(self):
+                return ["ghost"]
+
+            def get_contract(self, _name):
+                return None
+
+        validator = ContractValidator(StubRegistry())
+        assert validator.get_slice_readers() == {}
