@@ -21,13 +21,16 @@ logger = get_logger("agent_contracts.graph_builder")
 
 
 class GraphBuilder:
-    """Registry-based graph construction utility.
-    
-    Example:
-        builder = GraphBuilder(registry)
-        builder.add_supervisor("orders", llm)
-        builder.add_supervisor("notifications", llm)
-        graph = builder.build()
+    """Build LangGraph graphs from a NodeRegistry.
+
+    Args:
+        - registry: Optional NodeRegistry to use.
+        - state_class: Optional state type for the graph.
+        - llm_provider: Callable providing LLM instances.
+        - dependency_provider: Callable returning services for a NodeContract.
+        - supervisor_factory: Callable creating supervisors for name/llm.
+    Returns:
+        - GraphBuilder instance.
     """
     
     def __init__(
@@ -37,15 +40,17 @@ class GraphBuilder:
         llm_provider: Callable[[], Any] | None = None,
         dependency_provider: Callable[[NodeContract], dict] | None = None,
         supervisor_factory: Callable[[str, Any], GenericSupervisor] | None = None,
-    ):
-        """Initialize.
-        
+    ) -> None:
+        """Initialize the graph builder.
+
         Args:
-            registry: Node registry
-            state_class: State type (uses dict if not provided)
-            llm_provider: Function that provides LLM instances
-            dependency_provider: Function that provides dependencies for nodes
-            supervisor_factory: Function that creates supervisor instances (name, llm) -> GenericSupervisor
+            - registry: Node registry.
+            - state_class: State type (uses dict if not provided).
+            - llm_provider: Function that provides LLM instances.
+            - dependency_provider: Function that provides dependencies for nodes.
+            - supervisor_factory: Function that creates supervisor instances.
+        Returns:
+            - None.
         """
         self.registry = registry or get_node_registry()
         self.state_class = state_class
@@ -61,12 +66,17 @@ class GraphBuilder:
     def add_supervisor(
         self,
         name: str,
-        llm=None,
-        **services,
+        llm: Any | None = None,
+        **services: Any,
     ) -> "GraphBuilder":
-        """Add Supervisor.
-        
-        Related node instances are also created.
+        """Add a supervisor and its related nodes.
+
+        Args:
+            - name: Supervisor name.
+            - llm: Optional LLM instance for node creation.
+            - **services: Services to inject into node instances.
+        Returns:
+            - Self for fluent chaining.
         """
         self.supervisor_names.add(name)
         if self.llm_provider is None:
@@ -94,17 +104,25 @@ class GraphBuilder:
         return self
     
     def build_routing_map(self, supervisor_name: str) -> dict[str, str]:
-        """Auto-generate routing map.
-        
+        """Generate a routing map for a supervisor.
+
+        Args:
+            - supervisor_name: Supervisor name.
         Returns:
-            {"node_name": "node_name", "done": END}
+            - Mapping of node names and "done" to routing targets.
         """
         routing = {name: name for name in self.registry.get_supervisor_nodes(supervisor_name)}
         routing["done"] = END  # LangGraph END constant
         return routing
 
     def create_node_wrapper(self, node_name: str) -> Callable:
-        """Create LangGraph-compatible node wrapper."""
+        """Create a LangGraph-compatible node wrapper.
+
+        Args:
+            - node_name: Node name to wrap.
+        Returns:
+            - Async callable for LangGraph execution.
+        """
         node_cls = self.node_classes.get(node_name)
         instance = self.node_instances.get(node_name)
         
@@ -130,7 +148,13 @@ class GraphBuilder:
         return wrapper
     
     def create_supervisor_wrapper(self, supervisor_name: str) -> Callable:
-        """Create LangGraph-compatible Supervisor wrapper."""
+        """Create a LangGraph-compatible supervisor wrapper.
+
+        Args:
+            - supervisor_name: Supervisor name to wrap.
+        Returns:
+            - Async callable for LangGraph execution.
+        """
         supervisor = self.supervisor_instances.get(supervisor_name)
 
         async def wrapper(state: dict, config: Optional[RunnableConfig] = None) -> dict:
@@ -157,9 +181,12 @@ class GraphBuilder:
         return wrapper
     
     def create_routing_function(self, supervisor_name: str) -> Callable:
-        """Create routing function after Supervisor.
-        
-        Automatically routes to 'done' if response_type is terminal.
+        """Create a routing function for post-supervisor routing.
+
+        Args:
+            - supervisor_name: Supervisor name for routing context.
+        Returns:
+            - Routing function returning the next node name.
         """
         valid_nodes = set(self.registry.get_supervisor_nodes(supervisor_name))
         
@@ -187,37 +214,29 @@ class GraphBuilder:
 
 def build_graph_from_registry(
     registry: NodeRegistry | None = None,
-    llm=None,
+    llm: Any | None = None,
     llm_provider: Callable[[], Any] | None = None,
     dependency_provider: Callable[[NodeContract], dict] | None = None,
     supervisor_factory: Callable[[str, Any], GenericSupervisor] | None = None,
     entrypoint: tuple[str, Callable, Callable] | None = None,
     supervisors: list[str] | None = None,
     state_class: type | None = None,
-    **services,
+    **services: Any,
 ) -> StateGraph:
-    """Auto-build graph from registry.
-    
-    Usage:
-        from agent_contracts import build_graph_from_registry
-        
-        registry = get_node_registry()
-        graph = build_graph_from_registry(registry, llm=llm)
-        compiled = graph.compile()
-    
+    """Build a LangGraph StateGraph from a registry.
+
     Args:
-        registry: Node registry
-        llm: LLM instance (for all supervisors)
-        llm_provider: Function to get LLM instances
-        dependency_provider: Function to get dependencies for nodes
-        supervisor_factory: Function to create supervisor instances (name, llm) -> GenericSupervisor
-        entrypoint: (name, node_func, route_func) tuple for entry point
-        supervisors: List of supervisor names to add
-        state_class: State class for StateGraph
-        **services: Services to inject into nodes
-        
+        - registry: Node registry to read from.
+        - llm: LLM instance for supervisor/node creation.
+        - llm_provider: Callable providing LLM instances.
+        - dependency_provider: Callable providing services for nodes.
+        - supervisor_factory: Callable creating supervisors.
+        - entrypoint: Optional entry node tuple (name, node_func, route_func).
+        - supervisors: Supervisor names to add.
+        - state_class: State class for the StateGraph.
+        - **services: Services to inject into nodes.
     Returns:
-        StateGraph (not compiled)
+        - Uncompiled StateGraph instance.
     """
     reg = registry or get_node_registry()
     builder = GraphBuilder(

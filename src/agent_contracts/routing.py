@@ -18,21 +18,14 @@ if TYPE_CHECKING:
 # =============================================================================
 
 class MatchedRule(BaseModel):
-    """A matched trigger condition.
-    
-    Represents a single rule that matched during supervisor evaluation.
-    
-    Attributes:
-        node: Node name that matched
-        condition: Human-readable condition description
-        priority: Trigger priority (higher = evaluated first)
-    
-    Example:
-        rule = MatchedRule(
-            node="search",
-            condition="request.action=search",
-            priority=100,
-        )
+    """Represent a matched trigger condition.
+
+    Args:
+        - node: Node name that matched.
+        - condition: Human-readable condition description.
+        - priority: Trigger priority (higher evaluates first).
+    Returns:
+        - MatchedRule instance.
     """
     node: str = Field(description="Node name")
     condition: str = Field(description="Human-readable condition description")
@@ -40,22 +33,15 @@ class MatchedRule(BaseModel):
 
 
 class RoutingReason(BaseModel):
-    """Detailed routing decision reason.
-    
-    Provides structured explanation of why a particular node was selected.
-    
-    Attributes:
-        decision_type: Type of decision made
-        matched_rules: List of rules that matched
-        llm_used: Whether LLM was used for the decision
-        llm_reasoning: LLM's reasoning if used
-    
-    Decision Types:
-        - terminal_state: Response type triggered exit
-        - explicit_routing: Answer routed to question owner
-        - rule_match: TriggerCondition matched
-        - llm_decision: LLM made the choice
-        - fallback: No match, using default
+    """Describe why a routing decision was made.
+
+    Args:
+        - decision_type: Decision category (rule_match, llm_decision, etc.).
+        - matched_rules: Trigger rules that matched.
+        - llm_used: Whether an LLM was used.
+        - llm_reasoning: LLM reasoning summary if present.
+    Returns:
+        - RoutingReason instance.
     """
     decision_type: str = Field(
         description="Type of decision: terminal_state, explicit_routing, rule_match, llm_decision, fallback"
@@ -69,32 +55,24 @@ class RoutingReason(BaseModel):
 
 
 class RoutingDecision(BaseModel):
-    """Complete routing decision with traceability.
-    
-    The main output of `GenericSupervisor.decide_with_trace()`.
-    Provides full visibility into how a routing decision was made.
-    
-    Attributes:
-        selected_node: The node that was selected
-        reason: Detailed reason for the decision
-    
-    Example:
-        decision = await supervisor.decide_with_trace(state)
-        
-        print(f"Selected: {decision.selected_node}")
-        print(f"Type: {decision.reason.decision_type}")
-        
-        for rule in decision.reason.matched_rules:
-            print(f"  P{rule.priority}: {rule.node} - {rule.condition}")
+    """Capture a traceable routing decision.
+
+    Args:
+        - selected_node: Node name selected for execution.
+        - reason: Detailed routing reason payload.
+    Returns:
+        - RoutingDecision instance.
     """
     selected_node: str = Field(description="Selected node name")
     reason: RoutingReason = Field(description="Decision reason details")
     
     def to_supervisor_decision(self) -> "SupervisorDecision":
-        """Convert to SupervisorDecision for backward compatibility.
-        
+        """Convert to a simplified SupervisorDecision.
+
+        Args:
+            - None.
         Returns:
-            SupervisorDecision with condensed reasoning string
+            - SupervisorDecision with condensed reasoning.
         """
         # Import here to avoid circular dependency
         from agent_contracts.supervisor import SupervisorDecision

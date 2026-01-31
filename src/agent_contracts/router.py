@@ -6,6 +6,7 @@ Uses rule-based decisions, no LLM.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from agent_contracts.utils.logging import get_logger
 
@@ -13,45 +14,35 @@ logger = get_logger("agent_contracts.router")
 
 
 class BaseActionRouter(ABC):
-    """Base class for action-based routing.
-    
-    All requests are routed here first based on action.
-    Uses only parameters, no LLM.
-    
-    Example:
-        class MyRouter(BaseActionRouter):
-            def route(self, action: str, state: dict | None = None) -> str:
-                if action == "create":
-                    return "create_supervisor"
-                elif action == "search":
-                    return "search_supervisor"
-                return "default_supervisor"
+    """Define action-based routing without LLMs.
+
+    Args:
+        - None.
+    Returns:
+        - BaseActionRouter instance.
     """
     
     @abstractmethod
-    def route(self, action: str, state: dict | None = None) -> str:
-        """Determine routing target based on action.
-        
+    def route(self, action: str, state: dict[str, Any] | None = None) -> str:
+        """Determine the routing target based on action.
+
         Args:
-            action: Request action
-            state: Agent state (optional)
-            
+            - action: Request action string.
+            - state: Optional agent state.
         Returns:
-            Routing target node name
-            
+            - Routing target node name.
         Raises:
-            ValueError: For unknown actions
+            - ValueError: For unknown actions.
         """
         ...
     
-    def __call__(self, state: dict) -> dict:
-        """Execute as LangGraph node.
-        
+    def __call__(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Run routing as a LangGraph node.
+
         Args:
-            state: Agent state
-            
+            - state: Agent state.
         Returns:
-            Updated state (includes _internal.next_node)
+            - State updates including _internal.next_node.
         """
         request = state.get("request", {})
         action = request.get("action", "")

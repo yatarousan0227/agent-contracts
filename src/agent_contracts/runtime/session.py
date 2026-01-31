@@ -7,36 +7,21 @@ import time
 
 @runtime_checkable
 class SessionStore(Protocol):
-    """Protocol for session persistence.
-    
-    Implement this protocol to provide session storage
-    (e.g., PostgreSQL, Redis, DynamoDB).
-    
-    Example:
-        >>> class RedisSessionStore:
-        ...     def __init__(self, redis_client):
-        ...         self.redis = redis_client
-        ...     
-        ...     async def load(self, session_id: str) -> dict | None:
-        ...         data = await self.redis.get(f"session:{session_id}")
-        ...         return json.loads(data) if data else None
-        ...     
-        ...     async def save(self, session_id: str, data: dict, ttl: int = 3600):
-        ...         await self.redis.setex(
-        ...             f"session:{session_id}",
-        ...             ttl,
-        ...             json.dumps(data),
-        ...         )
+    """Define the session persistence interface.
+
+    Args:
+        - None.
+    Returns:
+        - SessionStore protocol implementation.
     """
     
     async def load(self, session_id: str) -> dict[str, Any] | None:
-        """Load session data.
-        
+        """Load session data for a session ID.
+
         Args:
-            session_id: The session identifier
-            
+            - session_id: Session identifier.
         Returns:
-            Session data dict, or None if not found
+            - Session data dict or None if not found.
         """
         ...
     
@@ -46,44 +31,54 @@ class SessionStore(Protocol):
         data: dict[str, Any], 
         ttl_seconds: int = 3600,
     ) -> None:
-        """Save session data.
-        
+        """Save session data with a TTL.
+
         Args:
-            session_id: The session identifier
-            data: Session data to persist
-            ttl_seconds: Time-to-live in seconds (default 1 hour)
+            - session_id: Session identifier.
+            - data: Session data to persist.
+            - ttl_seconds: Time-to-live in seconds.
+        Returns:
+            - None.
         """
         ...
     
     async def delete(self, session_id: str) -> None:
-        """Delete session data.
-        
+        """Delete session data by session ID.
+
         Args:
-            session_id: The session identifier
+            - session_id: Session identifier.
+        Returns:
+            - None.
         """
         ...
 
 
 class InMemorySessionStore:
-    """In-memory session store for development/testing.
-    
-    NOT suitable for production use - data is lost on restart.
-    
-    Example:
-        >>> store = InMemorySessionStore()
-        >>> await store.save("session1", {"user": "test"})
-        >>> data = await store.load("session1")
-        >>> print(data)  # {"user": "test"}
+    """Provide an in-memory session store for development.
+
+    Args:
+        - None.
+    Returns:
+        - InMemorySessionStore instance.
     """
     
     def __init__(self) -> None:
-        """Initialize the store."""
+        """Initialize the in-memory store.
+
+        Args:
+            - None.
+        Returns:
+            - None.
+        """
         self._store: dict[str, tuple[dict[str, Any], float]] = {}
     
     async def load(self, session_id: str) -> dict[str, Any] | None:
-        """Load session data.
-        
-        Returns None if session doesn't exist or has expired.
+        """Load session data if present and not expired.
+
+        Args:
+            - session_id: Session identifier.
+        Returns:
+            - Session data dict or None if missing/expired.
         """
         entry = self._store.get(session_id)
         if entry is None:
@@ -103,18 +98,44 @@ class InMemorySessionStore:
         data: dict[str, Any], 
         ttl_seconds: int = 3600,
     ) -> None:
-        """Save session data with TTL."""
+        """Save session data with TTL.
+
+        Args:
+            - session_id: Session identifier.
+            - data: Session data to persist.
+            - ttl_seconds: Time-to-live in seconds.
+        Returns:
+            - None.
+        """
         expires_at = time.time() + ttl_seconds
         self._store[session_id] = (data, expires_at)
     
     async def delete(self, session_id: str) -> None:
-        """Delete session data."""
+        """Delete session data.
+
+        Args:
+            - session_id: Session identifier.
+        Returns:
+            - None.
+        """
         self._store.pop(session_id, None)
     
     def clear(self) -> None:
-        """Clear all sessions (useful for testing)."""
+        """Clear all sessions.
+
+        Args:
+            - None.
+        Returns:
+            - None.
+        """
         self._store.clear()
     
     def __len__(self) -> int:
-        """Return number of stored sessions."""
+        """Return the number of stored sessions.
+
+        Args:
+            - None.
+        Returns:
+            - Session count.
+        """
         return len(self._store)

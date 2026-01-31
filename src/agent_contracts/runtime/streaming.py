@@ -6,7 +6,7 @@ enabling SSE (Server-Sent Events) and progressive response patterns.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Literal
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 from enum import Enum
 import logging
 
@@ -21,7 +21,13 @@ logger = logging.getLogger(__name__)
 
 
 class StreamEventType(str, Enum):
-    """Types of streaming events."""
+    """Define streaming event types.
+
+    Args:
+        - None.
+    Returns:
+        - StreamEventType enum members.
+    """
     NODE_START = "node_start"      # Node execution starting
     NODE_END = "node_end"          # Node execution completed
     STATUS = "status"              # Status update message
@@ -33,21 +39,16 @@ class StreamEventType(str, Enum):
 
 @dataclass
 class StreamEvent:
-    """Event emitted during streaming execution.
-    
-    Attributes:
-        type: Type of event (node_start, node_end, status, etc.)
-        node_name: Name of node (for node events)
-        data: Event data payload
-        message: Human-readable message
-        state: State snapshot (optional)
-    
-    Example:
-        >>> event = StreamEvent(
-        ...     type=StreamEventType.NODE_END,
-        ...     node_name="search",
-        ...     data={"results_count": 10},
-        ... )
+    """Represent an event emitted during streaming execution.
+
+    Args:
+        - type: Event type (node_start, node_end, status, etc.).
+        - node_name: Node name for node events.
+        - data: Event payload data.
+        - message: Human-readable message.
+        - state: Optional state snapshot.
+    Returns:
+        - StreamEvent instance.
     """
     type: StreamEventType | str
     node_name: str | None = None
@@ -56,7 +57,13 @@ class StreamEvent:
     state: dict[str, Any] | None = None
     
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
+        """Convert the event to a JSON-serializable dict.
+
+        Args:
+            - None.
+        Returns:
+            - Dictionary representation of the event.
+        """
         result: dict[str, Any] = {
             "type": self.type.value if isinstance(self.type, StreamEventType) else self.type,
         }
@@ -69,7 +76,13 @@ class StreamEvent:
         return result
     
     def to_sse(self) -> str:
-        """Format as Server-Sent Event string."""
+        """Format the event as an SSE string.
+
+        Args:
+            - None.
+        Returns:
+            - Server-Sent Event formatted string.
+        """
         import json
         event_type = self.type.value if isinstance(self.type, StreamEventType) else self.type
         data = json.dumps(self.to_dict(), ensure_ascii=False)
@@ -78,32 +91,30 @@ class StreamEvent:
 
 @dataclass
 class NodeExecutor:
-    """Wrapper for executing a single node.
-    
-    Attributes:
-        name: Node name
-        func: Async function that takes state and returns updates
-        description: Optional description for status messages
+    """Wrap execution metadata for a single node.
+
+    Args:
+        - name: Node name.
+        - func: Async function that takes state and returns updates.
+        - description: Optional description for status messages.
+    Returns:
+        - NodeExecutor instance.
     """
     name: str
-    func: Callable[[dict], Any]  # async (state) -> updates
+    func: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
     description: str | None = None
 
 
 class StreamingRuntime:
-    """Runtime with streaming execution support.
-    
-    Enables node-by-node execution with events emitted for each step,
-    suitable for SSE streaming to clients.
-    
-    Example:
-        >>> runtime = StreamingRuntime(nodes=[
-        ...     NodeExecutor("search", search_node),
-        ...     NodeExecutor("stylist", stylist_node),
-        ... ])
-        >>> 
-        >>> async for event in runtime.stream(request):
-        ...     yield event.to_sse()
+    """Stream node execution events to clients.
+
+    Args:
+        - nodes: Optional list of node executors.
+        - hooks: Optional RuntimeHooks implementation.
+        - session_store: Optional SessionStore for persistence.
+        - slices_to_restore: Slice names to restore from session data.
+    Returns:
+        - StreamingRuntime instance.
     """
     
     def __init__(
@@ -114,28 +125,34 @@ class StreamingRuntime:
         slices_to_restore: list[str] | None = None,
     ) -> None:
         """Initialize the streaming runtime.
-        
+
         Args:
-            nodes: List of node executors to run in sequence
-            hooks: Custom runtime hooks
-            session_store: Session persistence store
-            slices_to_restore: Slice names to restore from session
+            - nodes: List of node executors to run in sequence.
+            - hooks: Custom runtime hooks.
+            - session_store: Session persistence store.
+            - slices_to_restore: Slice names to restore from session.
+        Returns:
+            - None.
         """
         self.nodes = nodes or []
         self.hooks = hooks or DefaultHooks()
         self.session_store = session_store
         self.slices_to_restore = slices_to_restore or ["_internal"]
     
-    def add_node(self, name: str, func: Callable, description: str | None = None) -> "StreamingRuntime":
-        """Add a node to the execution pipeline (fluent API).
-        
+    def add_node(
+        self,
+        name: str,
+        func: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]],
+        description: str | None = None,
+    ) -> "StreamingRuntime":
+        """Add a node to the execution pipeline.
+
         Args:
-            name: Node name
-            func: Async function that takes state and returns updates
-            description: Optional description
-            
+            - name: Node name.
+            - func: Async function that takes state and returns updates.
+            - description: Optional description string.
         Returns:
-            self for chaining
+            - Self for chaining.
         """
         self.nodes.append(NodeExecutor(name=name, func=func, description=description))
         return self
@@ -146,13 +163,12 @@ class StreamingRuntime:
         initial_state: dict[str, Any] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Execute nodes and yield streaming events.
-        
+
         Args:
-            request: Execution request context
-            initial_state: Optional pre-built initial state
-            
-        Yields:
-            StreamEvent for each execution step
+            - request: Execution request context.
+            - initial_state: Optional pre-built initial state.
+        Returns:
+            - Async iterator of StreamEvent instances.
         """
         try:
             # 1. Build initial state
@@ -235,21 +251,18 @@ class StreamingRuntime:
         self,
         request: RequestContext,
         graph: Any,
-        stream_mode: str = "updates",
+        stream_mode: Literal["values", "updates", "debug"] = "updates",
         initial_state: dict[str, Any] | None = None,
     ) -> AsyncIterator[StreamEvent]:
         """Stream execution using LangGraph's native streaming.
-        
-        Uses LangGraph's astream() method for true streaming support.
-        
+
         Args:
-            request: Execution request context
-            graph: Compiled LangGraph graph
-            stream_mode: LangGraph stream mode ("values", "updates", "debug")
-            initial_state: Optional pre-built initial state
-            
-        Yields:
-            StreamEvent for each update from the graph
+            - request: Execution request context.
+            - graph: Compiled LangGraph graph.
+            - stream_mode: LangGraph stream mode ("values", "updates", "debug").
+            - initial_state: Optional pre-built initial state.
+        Returns:
+            - Async iterator of StreamEvent instances.
         """
         try:
             # Build initial state
@@ -313,12 +326,26 @@ class StreamingRuntime:
 
 
 def create_status_event(message: str) -> StreamEvent:
-    """Helper to create a status event."""
+    """Create a status StreamEvent.
+
+    Args:
+        - message: Status message string.
+    Returns:
+        - StreamEvent with STATUS type.
+    """
     return StreamEvent(type=StreamEventType.STATUS, message=message)
 
 
 def create_progress_event(current: int, total: int, message: str | None = None) -> StreamEvent:
-    """Helper to create a progress event."""
+    """Create a progress StreamEvent.
+
+    Args:
+        - current: Current progress value.
+        - total: Total progress value.
+        - message: Optional status message.
+    Returns:
+        - StreamEvent with PROGRESS type.
+    """
     return StreamEvent(
         type=StreamEventType.PROGRESS,
         data={"current": current, "total": total},
@@ -327,5 +354,12 @@ def create_progress_event(current: int, total: int, message: str | None = None) 
 
 
 def create_data_event(data: dict[str, Any], message: str | None = None) -> StreamEvent:
-    """Helper to create a data event."""
+    """Create a data StreamEvent.
+
+    Args:
+        - data: Data payload dictionary.
+        - message: Optional status message.
+    Returns:
+        - StreamEvent with DATA type.
+    """
     return StreamEvent(type=StreamEventType.DATA, data=data, message=message)

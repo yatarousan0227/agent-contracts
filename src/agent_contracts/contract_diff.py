@@ -17,7 +17,15 @@ _SEVERITY_ORDER = {
 
 @dataclass
 class NodeChange:
-    """Represents a node-level contract change."""
+    """Describe a node-level contract change.
+
+    Args:
+        - node: Node name.
+        - severity: Severity level (nonbreaking, behavioral, breaking).
+        - details: List of change detail strings.
+    Returns:
+        - NodeChange instance.
+    """
     node: str
     severity: str
     details: list[str] = field(default_factory=list)
@@ -25,19 +33,39 @@ class NodeChange:
 
 @dataclass
 class ContractDiffReport:
-    """Structured contract diff report."""
+    """Summarize differences between two contract sets.
+
+    Args:
+        - added: Added node names.
+        - removed: Removed node names.
+        - changes: List of node-level changes.
+    Returns:
+        - ContractDiffReport instance.
+    """
     added: list[str]
     removed: list[str]
     changes: list[NodeChange]
 
     def has_breaking(self) -> bool:
-        """Return True if there are breaking changes."""
+        """Check if the diff includes breaking changes.
+
+        Args:
+            - None.
+        Returns:
+            - True if breaking changes exist.
+        """
         if self.removed:
             return True
         return any(c.severity == "breaking" for c in self.changes)
 
     def to_text(self) -> str:
-        """Format the diff as human-readable text."""
+        """Format the diff as human-readable text.
+
+        Args:
+            - None.
+        Returns:
+            - Human-readable diff summary.
+        """
         lines: list[str] = []
         if self.added:
             lines.append("Added nodes:")
@@ -73,7 +101,14 @@ def diff_contracts(
     before: dict[str, dict[str, Any]],
     after: dict[str, dict[str, Any]],
 ) -> ContractDiffReport:
-    """Diff two exported contract dictionaries."""
+    """Compute a structured diff between contract dictionaries.
+
+    Args:
+        - before: Exported contracts from the previous version.
+        - after: Exported contracts from the new version.
+    Returns:
+        - ContractDiffReport with added/removed/changed nodes.
+    """
     before_nodes = set(before.keys())
     after_nodes = set(after.keys())
 

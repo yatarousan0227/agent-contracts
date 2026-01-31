@@ -23,7 +23,14 @@ logger = get_logger("agent_contracts.supervisor")
 
 
 class SupervisorDecision(BaseModel):
-    """Supervisor decision result."""
+    """Represent a supervisor's routing decision.
+
+    Args:
+        - next_node: Next node name or "done".
+        - reasoning: Human-readable reasoning summary.
+    Returns:
+        - SupervisorDecision instance.
+    """
     next_node: str = Field(description="Next node name, or 'done'")
     reasoning: str = Field(default="", description="Decision reasoning")
 
@@ -119,14 +126,19 @@ class ExplicitRoutingHandler(Protocol):
 
 
 class GenericSupervisor:
-    """Generic Supervisor.
-    
-    Has no node-specific rule-based logic,
-    evaluates conditions from NodeRegistry.
-    
-    Example:
-        supervisor = GenericSupervisor("orders", llm=llm)
-        decision = await supervisor.decide(state)
+    """Route to the next node using triggers and optional LLM.
+
+    Args:
+        - supervisor_name: Supervisor namespace to evaluate.
+        - llm: Optional LangChain LLM instance.
+        - registry: Optional NodeRegistry (defaults to global registry).
+        - max_iterations: Optional max iteration count for safety.
+        - terminal_response_types: Optional terminal response types.
+        - context_builder: Optional context builder for LLM prompts.
+        - max_field_length: Max field length for prompt sanitization.
+        - explicit_routing_handler: Optional explicit routing handler.
+    Returns:
+        - GenericSupervisor instance.
     """
     
     def __init__(
@@ -139,24 +151,20 @@ class GenericSupervisor:
         context_builder: ContextBuilder | None = None,
         max_field_length: int | None = None,
         explicit_routing_handler: ExplicitRoutingHandler | None = None,
-    ):
-        """Initialize.
-        
+    ) -> None:
+        """Initialize the supervisor instance.
+
         Args:
-            supervisor_name: Supervisor type
-            llm: LangChain LLM
-            registry: Node registry (uses global if omitted)
-            max_iterations: Max iterations (uses config if omitted)
-            terminal_response_types: Terminal response types (uses config if omitted)
-            context_builder: Custom context builder for LLM routing (optional).
-                If provided, allows customization of which state slices and
-                additional context are passed to LLM for routing decisions.
-                If omitted, uses default behavior (request, response, _internal only).
-            max_field_length: Maximum field length for sanitization (default: 10000)
-            explicit_routing_handler: Custom handler for explicit routing (optional).
-                If provided, called before trigger evaluation. If handler returns
-                a node name, that node is selected immediately. Useful for
-                return-to-sender patterns (e.g., routing answers to question askers).
+            - supervisor_name: Supervisor namespace to evaluate.
+            - llm: LangChain LLM instance (optional).
+            - registry: Node registry (uses global if omitted).
+            - max_iterations: Max iterations (uses config if omitted).
+            - terminal_response_types: Terminal response types (uses config if omitted).
+            - context_builder: Optional context builder for LLM routing.
+            - max_field_length: Maximum field length for sanitization.
+            - explicit_routing_handler: Optional explicit routing handler.
+        Returns:
+            - None.
         """
         self.name = supervisor_name
         self.llm = llm
@@ -175,12 +183,16 @@ class GenericSupervisor:
     
     async def run(
         self,
-        state: dict,
+        state: dict[str, Any],
         config: Optional[RunnableConfig] = None,
-    ) -> dict:
-        """Execute Supervisor node.
-        
-        Called as LangGraph node.
+    ) -> dict[str, Any]:
+        """Execute as a LangGraph node and update routing decision.
+
+        Args:
+            - state: Current agent state.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - State updates for the _internal slice.
         """
         # Iteration management
         internal = state.get("_internal", {})
@@ -215,15 +227,16 @@ class GenericSupervisor:
     
     async def decide(
         self,
-        state: dict,
+        state: dict[str, Any],
         config: Optional[RunnableConfig] = None,
     ) -> SupervisorDecision:
-        """Determine next node.
-        
-        This is a convenience wrapper around decide_with_trace() that returns
-        a simplified SupervisorDecision instead of the full RoutingDecision.
-        
-        For debugging and detailed routing information, use decide_with_trace().
+        """Determine the next node with a simplified result.
+
+        Args:
+            - state: Current agent state.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - SupervisorDecision with selected node and reasoning.
         """
         routing_decision = await self.decide_with_trace(state, config)
         return routing_decision.to_supervisor_decision()
@@ -482,20 +495,16 @@ Last active node suggested: {child_decision or 'None'}
     
     async def decide_with_trace(
         self,
-        state: dict,
+        state: dict[str, Any],
         config: Optional[RunnableConfig] = None,
     ) -> RoutingDecision:
-        """Determine next node with full traceability.
-        
-        Returns RoutingDecision with detailed reasoning.
-        Use this for debugging and explainability.
-        
-        Example:
-            decision = await supervisor.decide_with_trace(state)
-            print(f"Selected: {decision.selected_node}")
-            print(f"Type: {decision.reason.decision_type}")
-            for rule in decision.reason.matched_rules:
-                print(f"  - {rule.node} (P{rule.priority}): {rule.condition}")
+        """Determine the next node with traceable reasoning.
+
+        Args:
+            - state: Current agent state.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - RoutingDecision with detailed reasoning.
         """
         # Enhance trace config (create new config to avoid mutation)
         base_config = config or {}
@@ -597,8 +606,15 @@ Last active node suggested: {child_decision or 'None'}
     
     async def __call__(
         self,
-        state: dict,
+        state: dict[str, Any],
         config: Optional[RunnableConfig] = None,
-    ) -> dict:
-        """LangGraph-compatible Callable."""
+    ) -> dict[str, Any]:
+        """Invoke the supervisor as a LangGraph-compatible callable.
+
+        Args:
+            - state: Current agent state.
+            - config: Optional RunnableConfig for tracing.
+        Returns:
+            - State updates for the _internal slice.
+        """
         return await self.run(state, config)
