@@ -639,7 +639,11 @@ print(visualizer.generate_state_slices_section())
 
 ## 🤝 Contributing
 
-貢献は大歓迎です！プルリクエストを送ってください。
+貢献は大歓迎です！
+
+- はじめに: [CONTRIBUTING.md](CONTRIBUTING.md)
+- セキュリティ報告: [SECURITY.md](SECURITY.md)（公開Issueは避けてください）
+- 行動規範: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ---
 

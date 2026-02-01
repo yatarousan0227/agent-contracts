@@ -639,7 +639,11 @@ See [ARCHITECTURE_SAMPLE.md](docs/ARCHITECTURE_SAMPLE.md) for example output.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome!
+
+- Start here: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reports: [SECURITY.md](SECURITY.md) (please avoid public issues)
+- Community guidelines: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ---
 

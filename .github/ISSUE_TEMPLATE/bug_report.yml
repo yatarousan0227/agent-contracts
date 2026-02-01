@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a bug in agent-contracts
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please include a minimal reproduction if possible.
+
+  - type: input
+    id: version
+    attributes:
+      label: agent-contracts version
+      placeholder: "e.g. 0.6.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.11.8"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, relevant dependency versions (LangGraph/LangChain), etc.
+      placeholder: |
+        OS:
+        langgraph:
+        langchain-core:
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps (minimal)
+      description: Include code or a repo link. Redact secrets.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack traces
+      render: text
+    validations:
+      required: false
+
