@@ -17,6 +17,7 @@ English | [日本語](README.ja.md)
 
 **Documentation**
 - **Getting Started**: [docs/getting_started.md](docs/getting_started.md)
+- **Hierarchical Supervisor Guide (v0.6.0)**: [docs/guides/hierarchical-supervisor.md](docs/guides/hierarchical-supervisor.md)
 - **API Reference**: [https://yatarousan0227.github.io/agent-contracts/](https://yatarousan0227.github.io/agent-contracts/)
 
 **A modular, contract-driven node architecture for building scalable LangGraph agents.**
@@ -31,9 +32,26 @@ Demo guide: [examples/interactive_tech_support/README.md](examples/interactive_t
 python -m examples.interactive_tech_support
 ```
 
+## 🧭 Try the Hierarchical Supervisor Demo (v0.6.0)
+
+Minimal example showing a parent supervisor calling a child subgraph:
+
+Guide: [examples/hierarchical_supervisor_minimal/README.md](examples/hierarchical_supervisor_minimal/README.md)
+
+```bash
+python -m examples.hierarchical_supervisor_minimal
+```
+
 ## Project Status
 
 This project is currently in **Beta** (`Development Status :: 4 - Beta`). Public APIs and the `agent-contracts` CLI are being stabilized ahead of 1.0; breaking changes will be documented in the changelog with migration notes.
+
+## ✨ What's new in v0.6.0
+
+- **Hierarchical supervisors (opt-in)**: route to `call_subgraph::...` nodes to execute child graphs. See the guide above.
+- **Safety budgets**: enforce max depth/steps/re-entry via `_internal.budgets`, with decision traces.
+- **Allowlists**: safe termination when a supervisor routes outside its allowlist, recorded as `termination_reason="allowlist_violation"`.
+- **StreamingRuntime**: `stream_with_graph(..., include_subgraphs=True)` streams subgraph events (default `True`).
 
 ---
 
@@ -468,6 +486,17 @@ async for event in runtime.stream(request):
     yield event.to_sse()
 ```
 
+For graph-level streaming (including subgraph events), use `stream_with_graph` with a compiled graph:
+
+```python
+async for event in runtime.stream_with_graph(
+    request,
+    graph=compiled_graph,
+    include_subgraphs=True,
+):
+    yield event.to_sse()
+```
+
 ### Custom Hooks & Session Store
 Implement protocols to customize behavior.
 
@@ -600,7 +629,7 @@ See [ARCHITECTURE_SAMPLE.md](docs/ARCHITECTURE_SAMPLE.md) for example output.
 | Export | Description |
 |--------|-------------|
 | `AgentRuntime` | Unified execution engine with lifecycle hooks |
-| `StreamingRuntime` | Node-by-node streaming for SSE |
+| `StreamingRuntime` | Node-by-node streaming for SSE (supports subgraph events) |
 | `RequestContext` | Execution request container |
 | `ExecutionResult` | Execution result with response |
 | `RuntimeHooks` | Protocol for customization hooks |

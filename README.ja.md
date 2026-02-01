@@ -17,6 +17,7 @@
 
 **ドキュメント**
 - **Getting Started（入門ガイド）**: [docs/getting_started.ja.md](docs/getting_started.ja.md)
+- **階層スーパーバイザーガイド（v0.6.0）**: [docs/guides/hierarchical-supervisor.ja.md](docs/guides/hierarchical-supervisor.ja.md)
 - **API Reference**: [https://yatarousan0227.github.io/agent-contracts/](https://yatarousan0227.github.io/agent-contracts/)
 
 **LangGraphエージェントを構築するための、モジュール式・契約駆動型ノードアーキテクチャ。**
@@ -31,9 +32,26 @@
 python -m examples.interactive_tech_support
 ```
 
+## 🧭 階層スーパーバイザーのデモ（v0.6.0）
+
+親Supervisorが子Subgraphを呼び出す最小構成の例です。
+
+ガイド: [examples/hierarchical_supervisor_minimal/README.md](examples/hierarchical_supervisor_minimal/README.md)
+
+```bash
+python -m examples.hierarchical_supervisor_minimal
+```
+
 ## プロジェクトステータス
 
 本プロジェクトは現在 **Beta**（`Development Status :: 4 - Beta`）です。公開APIおよび `agent-contracts` CLI は 1.0 に向けて安定化を進めており、破壊的変更がある場合は CHANGELOG に移行手順とともに明記します。
+
+## ✨ v0.6.0 の新機能
+
+- **階層スーパーバイザー（opt-in）**: `call_subgraph::...` への遷移で子グラフを実行。上記ガイド参照。
+- **セーフティバジェット**: `_internal.budgets` で深さ/ステップ/再入を制限し、意思決定トレースに記録。
+- **allowlist**: allowlist外への遷移時に安全停止し、`termination_reason="allowlist_violation"` を記録。
+- **StreamingRuntime**: `stream_with_graph(..., include_subgraphs=True)` でSubgraphのイベントもストリーム（既定値 `True`）。
 
 ---
 
@@ -468,6 +486,17 @@ async for event in runtime.stream(request):
     yield event.to_sse()
 ```
 
+グラフ単位（Subgraph含む）のストリーミングは `stream_with_graph` でコンパイル済みGraphを渡します。
+
+```python
+async for event in runtime.stream_with_graph(
+    request,
+    graph=compiled_graph,
+    include_subgraphs=True,
+):
+    yield event.to_sse()
+```
+
 ### Custom Hooks & Session Store
 振る舞いをカスタマイズするためにプロトコルを実装します。
 
@@ -600,7 +629,7 @@ print(visualizer.generate_state_slices_section())
 | Export | Description |
 |--------|-------------|
 | `AgentRuntime` | ライフサイクルフックを持つ統合実行エンジン。 |
-| `StreamingRuntime` | SSEのためのノードごとのストリーミング。 |
+| `StreamingRuntime` | SSEのためのノードごとのストリーミング（Subgraph対応）。 |
 | `RequestContext` | 実行リクエストコンテナ。 |
 | `ExecutionResult` | レスポンスを含む実行結果。 |
 | `RuntimeHooks` | カスタマイズフック用プロトコル。 |
