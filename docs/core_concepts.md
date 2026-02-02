@@ -668,7 +668,101 @@ async for event in runtime.stream(request):
 
 ---
 
+## Hierarchical Supervisor (v0.6.0)
+
+Starting from v0.6.0, parent supervisors can invoke child subgraphs and return to the parent after the child graph completes.
+
+### Overview
+
+Hierarchical execution is **opt-in**. A parent supervisor invokes a subgraph by returning:
+
+```
+call_subgraph::<subgraph_id>
+```
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Domain Supervisor                        │
+│                                                              │
+│  decision = "call_subgraph::fashion"                        │
+│       │                                                      │
+│       ▼                                                      │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              CallSubgraph (fashion)                  │    │
+│  │  ┌─────────────────────────────────────────────┐    │    │
+│  │  │        Fashion Supervisor                    │    │    │
+│  │  │             │                                │    │    │
+│  │  │             ▼                                │    │    │
+│  │  │        TrendNode → END                       │    │    │
+│  │  └─────────────────────────────────────────────┘    │    │
+│  │                    │                                 │    │
+│  └────────────────────┼─────────────────────────────────┘    │
+│                       ▼                                      │
+│              Back to Domain Supervisor                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### SubgraphContract and SubgraphDefinition
+
+```python
+from agent_contracts import SubgraphContract, SubgraphDefinition
+
+# Define subgraph contract
+contract = SubgraphContract(
+    subgraph_id="fashion",
+    description="Fashion trend subgraph",
+    reads=["request"],
+    writes=["response"],
+    entrypoint="fashion_supervisor",
+)
+
+# Define subgraph composition
+definition = SubgraphDefinition(
+    subgraph_id="fashion",
+    supervisors=["fashion_supervisor"],
+    nodes=["trend_node"],
+)
+
+# Register with registry
+registry.register_subgraph(contract, definition)
+```
+
+### Safety Budgets
+
+Hierarchical execution enforces the following limits:
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| `max_depth` | 2 | Maximum call stack depth |
+| `max_steps` | 40 | Maximum total steps |
+| `max_reentry` | 2 | Maximum re-entries per subgraph |
+
+```python
+state = {
+    "_internal": {
+        "budgets": {"max_depth": 3, "max_steps": 50, "max_reentry": 2}
+    }
+}
+```
+
+Exceeding a limit triggers safe termination with a recorded `termination_reason`.
+
+### DecisionTrace
+
+When `enable_subgraphs=True`, routing history is recorded in `_internal.decision_trace`:
+
+- `step`: Global step count
+- `depth`: Call stack depth
+- `supervisor`: Supervisor name
+- `decision_kind`: `NODE`, `SUBGRAPH`, `STOP_LOCAL`, `STOP_GLOBAL`, `FALLBACK`
+- `target`: Selected node name or subgraph ID
+
+See the [Hierarchical Supervisor Guide](guides/hierarchical-supervisor.md) for details.
+
+---
+
 ## Next Steps
 
 - 🎯 [Best Practices](best_practices.md) - Design patterns
 - 🐛 [Troubleshooting](troubleshooting.md) - Common issues
+

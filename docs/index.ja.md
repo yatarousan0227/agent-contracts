@@ -13,6 +13,11 @@
 - **[トラブルシューティング](troubleshooting.ja.md)**: よくある問題とその解決策。
 - **[アーキテクチャサンプル](ARCHITECTURE_SAMPLE.md)**: Mermaidによるアーキテクチャ図のサンプル。
 
+## ガイド
+
+- **[階層型スーパーバイザー](guides/hierarchical-supervisor.ja.md)** (v0.6.0): 親Supervisorからサブグラフを呼び出す方法。
+
 ## API Reference
 
 詳細なAPIの使い方は、ソースコードとdocstringを参照してください。
+

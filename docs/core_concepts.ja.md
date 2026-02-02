@@ -668,7 +668,101 @@ async for event in runtime.stream(request):
 
 ---
 
+## 階層型スーパーバイザー (v0.6.0)
+
+v0.6.0から、親Supervisorが子Subgraphを呼び出し、子グラフ終了後に親へ戻る階層実行がサポートされます。
+
+### 概要
+
+階層実行は **opt-in** です。親Supervisorは以下の形式を返すことでサブグラフを呼び出します：
+
+```
+call_subgraph::<subgraph_id>
+```
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Domain Supervisor                        │
+│                                                              │
+│  decision = "call_subgraph::fashion"                        │
+│       │                                                      │
+│       ▼                                                      │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              CallSubgraph (fashion)                  │    │
+│  │  ┌─────────────────────────────────────────────┐    │    │
+│  │  │        Fashion Supervisor                    │    │    │
+│  │  │             │                                │    │    │
+│  │  │             ▼                                │    │    │
+│  │  │        TrendNode → END                       │    │    │
+│  │  └─────────────────────────────────────────────┘    │    │
+│  │                    │                                 │    │
+│  └────────────────────┼─────────────────────────────────┘    │
+│                       ▼                                      │
+│              Back to Domain Supervisor                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### SubgraphContract と SubgraphDefinition
+
+```python
+from agent_contracts import SubgraphContract, SubgraphDefinition
+
+# サブグラフの契約を定義
+contract = SubgraphContract(
+    subgraph_id="fashion",
+    description="Fashion trend subgraph",
+    reads=["request"],
+    writes=["response"],
+    entrypoint="fashion_supervisor",
+)
+
+# サブグラフの構成を定義
+definition = SubgraphDefinition(
+    subgraph_id="fashion",
+    supervisors=["fashion_supervisor"],
+    nodes=["trend_node"],
+)
+
+# レジストリに登録
+registry.register_subgraph(contract, definition)
+```
+
+### 安全制限 (Budgets)
+
+階層実行では以下の制限が適用されます：
+
+| 制限 | デフォルト | 説明 |
+|------|-----------|------|
+| `max_depth` | 2 | 最大コールスタック深度 |
+| `max_steps` | 40 | 最大総ステップ数 |
+| `max_reentry` | 2 | 同一サブグラフへの最大再入回数 |
+
+```python
+state = {
+    "_internal": {
+        "budgets": {"max_depth": 3, "max_steps": 50, "max_reentry": 2}
+    }
+}
+```
+
+制限を超えると安全停止し、`termination_reason` が記録されます。
+
+### DecisionTrace
+
+`enable_subgraphs=True` のとき、ルーティング履歴が `_internal.decision_trace` に記録されます：
+
+- `step`: グローバルのステップ数
+- `depth`: コールスタックの深さ
+- `supervisor`: スーパーバイザー名
+- `decision_kind`: `NODE`, `SUBGRAPH`, `STOP_LOCAL`, `STOP_GLOBAL`, `FALLBACK`
+- `target`: 選択されたノード名またはサブグラフID
+
+詳細は [階層型スーパーバイザーガイド](guides/hierarchical-supervisor.ja.md) を参照してください。
+
+---
+
 ## 次のステップ
 
 - 🎯 [ベストプラクティス](best_practices.ja.md) - 設計パターン
 - 🐛 [トラブルシューティング](troubleshooting.ja.md) - よくある問題
+

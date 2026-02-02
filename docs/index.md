@@ -13,6 +13,10 @@ Welcome to the documentation for **Agent Contracts**, a type-safe, modular, and 
 - **[Troubleshooting](troubleshooting.md)**: Common issues and how to resolve them.
 - **[Architecture Sample](ARCHITECTURE_SAMPLE.md)**: Example architecture diagram using Mermaid.
 
+## Guides
+
+- **[Hierarchical Supervisor](guides/hierarchical-supervisor.md)** (v0.6.0): How to call subgraphs from parent supervisors.
+
 ## 日本語ドキュメント
 
 - **[コアコンセプト](core_concepts.ja.md)**: ノード、スーパーバイザー、ランタイムなどの基本概念。
@@ -26,3 +30,4 @@ Welcome to the documentation for **Agent Contracts**, a type-safe, modular, and 
 ## API Reference
 
 Please refer to the source code and docstrings for detailed API usage.
+

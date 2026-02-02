@@ -438,3 +438,92 @@
   ```
 - **主要引数/戻り値**: `execute(request: RequestContext) -> ExecutionResult`。
 - **注意点**: 例外は `ExecutionResult.error_result(...)` に変換される。 
+
+---
+
+## Subgraphs (v0.6.0)
+
+### SubgraphContract
+- **目的**: サブグラフのI/O契約を宣言する。
+- **署名**: `SubgraphContract(subgraph_id: str, description: str, reads: list[str], writes: list[str], entrypoint: str, input_schema: type[BaseModel] | None = None, output_schema: type[BaseModel] | None = None)`
+- **最小例**:
+  ```python
+  from agent_contracts import SubgraphContract
+
+  contract = SubgraphContract(
+      subgraph_id="fashion",
+      description="Fashion trend subgraph",
+      reads=["request"],
+      writes=["response"],
+      entrypoint="fashion_supervisor",
+  )
+  ```
+- **主要引数/戻り値**: `subgraph_id` がサブグラフの一意識別子、`entrypoint` がサブグラフ内のエントリーポイント。
+- **注意点**: 親Supervisorは `call_subgraph::<subgraph_id>` を返すことでサブグラフを呼び出す。 
+
+### SubgraphDefinition
+- **目的**: サブグラフに属するスーパーバイザーとノードを定義する。
+- **署名**: `SubgraphDefinition(subgraph_id: str, supervisors: list[str] | None = None, nodes: list[str] | None = None)`
+- **最小例**:
+  ```python
+  from agent_contracts import SubgraphDefinition
+
+  definition = SubgraphDefinition(
+      subgraph_id="fashion",
+      supervisors=["fashion_supervisor"],
+      nodes=["trend_node", "style_node"],
+  )
+  ```
+- **主要引数/戻り値**: `supervisors` と `nodes` でサブグラフの構成要素を指定。
+- **注意点**: `registry.register_subgraph(contract, definition)` で登録する。 
+
+---
+
+## Hierarchical Runtime Types (v0.6.0)
+
+### Budgets
+- **目的**: 階層実行の安全制限（最大深度・ステップ数・再エントリー）を保持する。
+- **署名**: `Budgets(max_depth: int = 2, max_steps: int = 40, max_reentry: int = 2)`
+- **最小例**:
+  ```python
+  from agent_contracts import Budgets
+
+  budgets = Budgets(max_depth=3, max_steps=50, max_reentry=2)
+  state = {"_internal": {"budgets": {"max_depth": 3, "max_steps": 50}}}
+  ```
+- **主要引数/戻り値**: 各フィールドで制限値を指定。
+- **注意点**: 制限を超えると安全停止し、`termination_reason` が記録される。 
+
+### CallStackFrame
+- **目的**: サブグラフ呼び出しのコールスタックフレームを表す。
+- **署名**: `CallStackFrame(subgraph_id: str, depth: int, entry_step: int, locals: dict[str, Any] = {})`
+- **最小例**:
+  ```python
+  from agent_contracts import CallStackFrame
+
+  frame = CallStackFrame(
+      subgraph_id="fashion",
+      depth=1,
+      entry_step=5,
+  )
+  ```
+- **主要引数/戻り値**: `depth` がコールスタックの深さ、`entry_step` がサブグラフに入った時点のステップ数。
+- **注意点**: `_internal.call_stack` にリストとして保持される。 
+
+### DecisionTraceItem
+- **目的**: 階層実行中のルーティング決定を追跡する。
+- **署名**: `DecisionTraceItem(step: int, depth: int, supervisor: str | None, decision_kind: DecisionKind, target: str | None = None, reason: str | None = None, termination_reason: str | None = None)`
+- **最小例**:
+  ```python
+  from agent_contracts import DecisionTraceItem
+
+  trace = DecisionTraceItem(
+      step=1,
+      depth=0,
+      supervisor="domain",
+      decision_kind="SUBGRAPH",
+      target="fashion",
+  )
+  ```
+- **主要引数/戻り値**: `decision_kind` は `NODE`, `SUBGRAPH`, `STOP_LOCAL`, `STOP_GLOBAL`, `FALLBACK` のいずれか。
+- **注意点**: `_internal.decision_trace` にリストとして記録される。 

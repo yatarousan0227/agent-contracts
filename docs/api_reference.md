@@ -438,6 +438,98 @@ Purpose → Signature → Minimal Example → Key Arguments/Returns → Notes.
   ```
 - **Key Arguments/Returns**: `execute(request: RequestContext) -> ExecutionResult`.
 - **Notes**: Exceptions are converted to `ExecutionResult.error_result(...)`.
+
+---
+
+## Subgraphs (v0.6.0)
+
+### SubgraphContract
+- **Purpose**: Declare the I/O contract for a subgraph.
+- **Signature**: `SubgraphContract(subgraph_id: str, description: str, reads: list[str], writes: list[str], entrypoint: str, input_schema: type[BaseModel] | None = None, output_schema: type[BaseModel] | None = None)`
+- **Minimal Example**:
+  ```python
+  from agent_contracts import SubgraphContract
+
+  contract = SubgraphContract(
+      subgraph_id="fashion",
+      description="Fashion trend subgraph",
+      reads=["request"],
+      writes=["response"],
+      entrypoint="fashion_supervisor",
+  )
+  ```
+- **Key Arguments/Returns**: `subgraph_id` is the unique identifier; `entrypoint` is the entry node/supervisor.
+- **Notes**: Parent supervisor returns `call_subgraph::<subgraph_id>` to invoke a subgraph.
+
+### SubgraphDefinition
+- **Purpose**: Define which supervisors and nodes belong to a subgraph.
+- **Signature**: `SubgraphDefinition(subgraph_id: str, supervisors: list[str] | None = None, nodes: list[str] | None = None)`
+- **Minimal Example**:
+  ```python
+  from agent_contracts import SubgraphDefinition
+
+  definition = SubgraphDefinition(
+      subgraph_id="fashion",
+      supervisors=["fashion_supervisor"],
+      nodes=["trend_node", "style_node"],
+  )
+  ```
+- **Key Arguments/Returns**: `supervisors` and `nodes` specify subgraph components.
+- **Notes**: Register via `registry.register_subgraph(contract, definition)`.
+
+---
+
+## Hierarchical Runtime Types (v0.6.0)
+
+### Budgets
+- **Purpose**: Hold safety limits for hierarchical execution (max depth, steps, re-entry).
+- **Signature**: `Budgets(max_depth: int = 2, max_steps: int = 40, max_reentry: int = 2)`
+- **Minimal Example**:
+  ```python
+  from agent_contracts import Budgets
+
+  budgets = Budgets(max_depth=3, max_steps=50, max_reentry=2)
+  state = {"_internal": {"budgets": {"max_depth": 3, "max_steps": 50}}}
+  ```
+- **Key Arguments/Returns**: Each field specifies a limit.
+- **Notes**: Exceeding a limit triggers safe termination with a recorded `termination_reason`.
+
+### CallStackFrame
+- **Purpose**: Represent a call stack frame for a subgraph invocation.
+- **Signature**: `CallStackFrame(subgraph_id: str, depth: int, entry_step: int, locals: dict[str, Any] = {})`
+- **Minimal Example**:
+  ```python
+  from agent_contracts import CallStackFrame
+
+  frame = CallStackFrame(
+      subgraph_id="fashion",
+      depth=1,
+      entry_step=5,
+  )
+  ```
+- **Key Arguments/Returns**: `depth` is the call stack depth; `entry_step` is the step when entering the subgraph.
+- **Notes**: Stored in `_internal.call_stack` as a list.
+
+### DecisionTraceItem
+- **Purpose**: Trace routing decisions during hierarchical execution.
+- **Signature**: `DecisionTraceItem(step: int, depth: int, supervisor: str | None, decision_kind: DecisionKind, target: str | None = None, reason: str | None = None, termination_reason: str | None = None)`
+- **Minimal Example**:
+  ```python
+  from agent_contracts import DecisionTraceItem
+
+  trace = DecisionTraceItem(
+      step=1,
+      depth=0,
+      supervisor="domain",
+      decision_kind="SUBGRAPH",
+      target="fashion",
+  )
+  ```
+- **Key Arguments/Returns**: `decision_kind` is one of `NODE`, `SUBGRAPH`, `STOP_LOCAL`, `STOP_GLOBAL`, `FALLBACK`.
+- **Notes**: Recorded in `_internal.decision_trace` as a list.
+
+---
+
 # Public API List
 
 This list fixes the public classes/functions that appear in the README and Getting Started guide.
@@ -460,6 +552,10 @@ This list fixes the public classes/functions that appear in the README and Getti
 - `build_graph_from_registry`
 - `BaseAgentState`
 
+## Subgraphs (v0.6.0)
+- `SubgraphContract`
+- `SubgraphDefinition`
+
 ## Supervisor and Context
 - `GenericSupervisor`
 - `ContextBuilder` (protocol)
@@ -473,7 +569,13 @@ This list fixes the public classes/functions that appear in the README and Getti
 - `SessionStore`
 - `InMemorySessionStore`
 
+## Hierarchical Runtime (v0.6.0)
+- `Budgets`
+- `CallStackFrame`
+- `DecisionTraceItem`
+
 ## Validation, Visualization, and Config
 - `ContractValidator`
 - `ContractVisualizer`
 - `load_config`
+
